@@ -155,6 +155,8 @@ async function installMock(page) {
   await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');
     host.shadowRoot.querySelectorAll('.tab')[2].click();
+    const pane = host.shadowRoot.querySelector('.pane[data-pane="cfg"]');
+    if (pane) pane.scrollTop = 260;
   });
   await new Promise((r) => setTimeout(r, 250));
   await page.screenshot({ path: path.join(OUT, '03-light-settings.png') });

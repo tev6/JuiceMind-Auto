@@ -190,14 +190,20 @@
       for (const m of App.chat.slice(-8)) messages.push({ role: m.role, content: m.content });
 
       const bubble = UI.appendChat('assistant', '');
+      bubble.classList.add('streaming');
       UI.status('思考中…', 'busy');
       let acc = '';
+      let firstDelta = true;
       try {
         const res = await LLM.chat({
           messages,
           stream: !!cfg.stream,
           json: false,
           onDelta: (piece) => {
+            if (firstDelta) {
+              firstDelta = false;
+              UI.status('接收中…', 'busy');
+            }
             acc += piece;
             UI.updateBubble(bubble, acc);
           },
@@ -222,6 +228,7 @@
         UI.appendChat('assistant', '【请求失败】' + e.message);
         UI.status('请求失败：' + e.message, 'err');
       } finally {
+        bubble.classList.remove('streaming');
         App.busy = false;
       }
     },
@@ -320,8 +327,7 @@
           const k = (e.key || '').toLowerCase();
           if (k === 'j') {
             e.preventDefault();
-            const collapsed = UI.$wrap.getAttribute('data-collapsed') === 'true';
-            UI.setCollapsed(!collapsed);
+            UI.toggleVisible();
           } else if (k === 'enter') {
             e.preventDefault();
             Actions.solveAll();

@@ -174,6 +174,7 @@
 
     async _send(url, body, opt) {
       const headers = this.headers();
+      if (opt.stream) headers.Accept = 'text/event-stream';
       const payload = JSON.stringify(body);
       if (typeof GM_xmlhttpRequest === 'function') {
         return this._viaGM(url, headers, payload, opt);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JuiceMind AI 答题助手
 // @namespace    https://juicemind.com/
-// @version      1.3.0
+// @version      1.4.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -35,7 +35,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -213,6 +213,7 @@
     reasoning: false, // 是否请求「先思考再作答」（纯提示词层面）
     autoSubmit: false, // 填入后是否自动点提交
     autoRun: false, // 进入新页面是否自动扫描并生成
+    hidePanel: false, // 默认不显示悬浮窗，只用 Alt+J 唤出
     stream: true, // 对话页流式输出
     debug: false,
     systemPrompt: '', // 自定义追加提示词
@@ -1431,6 +1432,7 @@
 
     async _send(url, body, opt) {
       const headers = this.headers();
+      if (opt.stream) headers.Accept = 'text/event-stream';
       const payload = JSON.stringify(body);
       if (typeof GM_xmlhttpRequest === 'function') {
         return this._viaGM(url, headers, payload, opt);
@@ -2329,6 +2331,15 @@
 }
 .wrap[data-collapsed="true"] .panel { display: none; }
 .wrap[data-collapsed="true"] .fab { display: grid; }
+.wrap[data-hidden="true"] { display: none !important; }
+.wrap.dragging { transition: none; }
+.wrap.dragging .panel { cursor: grabbing; }
+.drag-grip {
+  width: 14px; height: 14px; flex: 0 0 auto; margin-right: -2px; opacity: .5;
+  background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
+  background-size: 5px 5px; color: var(--jm-muted);
+}
+.ft { cursor: grab; }
 .fab {
   display: none; width: 52px; height: 52px; border-radius: 18px; border: 1px solid var(--jm-border);
   background: linear-gradient(135deg, var(--jm-primary), var(--jm-secondary));
@@ -2499,6 +2510,8 @@
 .cmsg.user { background: var(--jm-chip); align-self: flex-end; max-width: 88%; }
 .cmsg.ai { background: var(--jm-card); border: 1px solid var(--jm-border); }
 .cmsg.sys { color: var(--jm-muted); font-size: 11.5px; background: transparent; padding: 2px; }
+.cmsg.ai.streaming::after { content: '▍'; margin-left: 1px; color: var(--jm-primary); animation: jmblink 1s steps(2, start) infinite; }
+@keyframes jmblink { 50% { opacity: 0; } }
 .chat-in { display: flex; gap: 6px; align-items: flex-end; padding-top: 4px; }
 .chat-in textarea {
   flex: 1 1 auto; resize: none; min-height: 38px; max-height: 120px; padding: 8px 10px;
@@ -2807,7 +2820,8 @@
       wrap.className = 'wrap';
       wrap.innerHTML = `
         <div class="panel">
-          <div class="hd">
+          <div class="hd" data-drag="handle" title="按住拖动">
+            <span class="drag-grip"></span>
             <div class="logo">AI</div>
             <div class="hd-txt">
               <div class="ttl">JuiceMind 助手</div>
@@ -2862,6 +2876,8 @@
       this.restorePos();
       this.renderSettings();
       this.updateSub();
+      // 开了「隐藏悬浮窗」的：启动即不显示，只等 Alt+J
+      if (Store.get('hidePanel')) this.setHidden(true);
       App.mounted = true;
     },
 
@@ -2938,7 +2954,41 @@
     setCollapsed(v) {
       this.$wrap.setAttribute('data-collapsed', v ? 'true' : 'false');
       Store.ui({ collapsed: !!v });
-      if (!v) this.restorePos();
+      if (!v) {
+        this.$wrap.removeAttribute('data-hidden');
+        this.restorePos();
+      }
+    },
+
+    /** 整窗隐藏：不显示面板也不显示圆钮，只能 Alt+J 叫回来 */
+    setHidden(v) {
+      if (v) {
+        this.$wrap.setAttribute('data-hidden', 'true');
+      } else {
+        this.$wrap.removeAttribute('data-hidden');
+        this.$wrap.setAttribute('data-collapsed', 'false');
+        this.restorePos();
+      }
+    },
+
+    isHidden() {
+      return this.$wrap.getAttribute('data-hidden') === 'true';
+    },
+
+    /** Alt+J 的统一入口：隐藏 → 显示；显示中且开了「隐藏悬浮窗」→ 隐藏；否则收成圆钮 */
+    toggleVisible() {
+      const cfg = Store.get();
+      if (this.isHidden()) {
+        this.setHidden(false);
+        return true;
+      }
+      const collapsed = this.$wrap.getAttribute('data-collapsed') === 'true';
+      if (cfg.hidePanel) {
+        this.setHidden(true);
+        return false;
+      }
+      this.setCollapsed(!collapsed);
+      return !collapsed;
     },
 
     /* ------------------------- 事件绑定 ------------------------- */
@@ -2953,9 +3003,13 @@
       });
 
       // 折叠 / 隐藏
-      r['btn-collapse'].addEventListener('click', () => this.setCollapsed(true));
+      const hideOne = () => {
+        if (Store.get('hidePanel')) this.setHidden(true);
+        else this.setCollapsed(true);
+      };
+      r['btn-collapse'].addEventListener('click', hideOne);
+      r['btn-hide'].addEventListener('click', hideOne);
       wrap.querySelector('.fab').addEventListener('click', () => this.setCollapsed(false));
-      r['btn-hide'].addEventListener('click', () => this.setCollapsed(true));
 
       // 主体按钮
       r['btn-scan'].addEventListener('click', () => Actions.scan(true));
@@ -2976,40 +3030,47 @@
         }
       });
 
-      // 拖拽
-      const hd = wrap.querySelector('.hd');
-      let dragging = false;
-      let sx = 0;
-      let sy = 0;
-      let ox = 0;
-      let oy = 0;
-      hd.addEventListener('pointerdown', (e) => {
-        if (e.target.closest('button')) return;
-        dragging = true;
-        sx = e.clientX;
-        sy = e.clientY;
-        const rect = wrap.getBoundingClientRect();
-        ox = rect.left;
-        oy = rect.top;
-        hd.setPointerCapture(e.pointerId);
-      });
-      hd.addEventListener('pointermove', (e) => {
-        if (!dragging) return;
+      // 拖拽：头部 / 底部都能拖，document 级监听，鼠标与触屏通用
+      const panel = wrap.querySelector('.panel');
+      let drag = null;
+      const onMove = (e) => {
+        if (!drag) return;
         const m = 8;
-        let left = ox + (e.clientX - sx);
-        let top = oy + (e.clientY - sy);
+        let left = drag.ox + (e.clientX - drag.sx);
+        let top = drag.oy + (e.clientY - drag.sy);
         left = Math.min(Math.max(m, left), window.innerWidth - 60);
         top = Math.min(Math.max(m, top), window.innerHeight - 40);
         wrap.style.left = left + 'px';
         wrap.style.top = top + 'px';
-      });
-      const stop = () => {
-        if (!dragging) return;
-        dragging = false;
+        if (e.cancelable) e.preventDefault();
+      };
+      const onUp = () => {
+        if (!drag) return;
+        drag = null;
+        wrap.classList.remove('dragging');
+        document.removeEventListener('pointermove', onMove, true);
+        document.removeEventListener('pointerup', onUp, true);
+        document.removeEventListener('pointercancel', onUp, true);
         this.savePos();
       };
-      hd.addEventListener('pointerup', stop);
-      hd.addEventListener('pointercancel', stop);
+      panel.addEventListener(
+        'pointerdown',
+        (e) => {
+          if (e.button !== 0 && e.pointerType === 'mouse') return;
+          // 只从头部/底部拖；控件、正文、输入框都不拦
+          const handle = e.target.closest('[data-drag="handle"], .ft');
+          if (!handle) return;
+          if (e.target.closest('button, a, input, textarea, select, .copy-btn')) return;
+          const rect = wrap.getBoundingClientRect();
+          drag = { sx: e.clientX, sy: e.clientY, ox: rect.left, oy: rect.top };
+          wrap.classList.add('dragging');
+          document.addEventListener('pointermove', onMove, true);
+          document.addEventListener('pointerup', onUp, true);
+          document.addEventListener('pointercancel', onUp, true);
+          e.preventDefault();
+        },
+        true
+      );
 
       window.addEventListener('resize', debounce(() => this.restorePos(), 200));
     },
@@ -3394,6 +3455,7 @@
         <label class="check"><input type="checkbox" data-k="autoSubmit" ${cfg.autoSubmit ? 'checked' : ''}/> 填入后自动点提交</label>
         <label class="check"><input type="checkbox" data-k="autoRun" ${cfg.autoRun ? 'checked' : ''}/> 进入新页面自动扫描并生成</label>
         <label class="check"><input type="checkbox" data-k="stream" ${cfg.stream ? 'checked' : ''}/> 对话流式输出</label>
+        <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> 隐藏悬浮窗（只用 Alt+J 唤出）</label>
         <label class="check"><input type="checkbox" data-k="debug" ${cfg.debug ? 'checked' : ''}/> 控制台调试日志</label>
         <div class="field">
           <label>补充提示词（可选）</label>
@@ -3469,6 +3531,7 @@
         autoSubmit: read('autoSubmit'),
         autoRun: read('autoRun'),
         stream: read('stream'),
+        hidePanel: read('hidePanel'),
         debug: read('debug'),
         systemPrompt: read('systemPrompt'),
       };
@@ -3671,14 +3734,20 @@
       for (const m of App.chat.slice(-8)) messages.push({ role: m.role, content: m.content });
 
       const bubble = UI.appendChat('assistant', '');
+      bubble.classList.add('streaming');
       UI.status('思考中…', 'busy');
       let acc = '';
+      let firstDelta = true;
       try {
         const res = await LLM.chat({
           messages,
           stream: !!cfg.stream,
           json: false,
           onDelta: (piece) => {
+            if (firstDelta) {
+              firstDelta = false;
+              UI.status('接收中…', 'busy');
+            }
             acc += piece;
             UI.updateBubble(bubble, acc);
           },
@@ -3703,6 +3772,7 @@
         UI.appendChat('assistant', '【请求失败】' + e.message);
         UI.status('请求失败：' + e.message, 'err');
       } finally {
+        bubble.classList.remove('streaming');
         App.busy = false;
       }
     },
@@ -3801,8 +3871,7 @@
           const k = (e.key || '').toLowerCase();
           if (k === 'j') {
             e.preventDefault();
-            const collapsed = UI.$wrap.getAttribute('data-collapsed') === 'true';
-            UI.setCollapsed(!collapsed);
+            UI.toggleVisible();
           } else if (k === 'enter') {
             e.preventDefault();
             Actions.solveAll();
