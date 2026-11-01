@@ -1,10 +1,7 @@
 node_modules/
 .chrome-profile/
-test/*.log
-test/*.err
-test/shots/0[1-6]-*.png
-test/shots/page-*.html
-test/shots/real-*.html
-test/shots/realcheck-*.png
+test/
+package.json
+package-lock.json
 .DS_Store
 Thumbs.db

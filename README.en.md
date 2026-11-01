@@ -4,7 +4,7 @@ English | [中文](README.md)
 
 A Tampermonkey userscript for [play.juicemind.com](https://play.juicemind.com). It reads the questions on the page, asks **your own** LLM API for answers, and fills them back in.
 
-![Real page](test/shots/real-review.png)
+![Real page](docs/img/review.png)
 
 ## Install (~1 min)
 
@@ -51,7 +51,7 @@ Supported question types: multiple choice / multi-select / short answer / essay 
 
 **`HTTP 400 ... supported API model names are ...`** — that endpoint does not accept your model name. The panel lists what it does support; click one to switch and retry:
 
-![Model name rejected](test/shots/07-model-error.png)
+![Model name rejected](docs/img/model-error.png)
 
 **Nothing found** — wait for the page to finish loading. The coding-exercise editor takes 2–3 seconds; the script waits for it.
 

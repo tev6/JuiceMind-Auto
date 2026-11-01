@@ -4,7 +4,7 @@
 
 给 [play.juicemind.com](https://play.juicemind.com) 用的 Tampermonkey 脚本：识别页面上的题目，调用**你自己的**大模型 API 生成答案，再填回页面。
 
-![真实页面](test/shots/real-review.png)
+![真实页面](docs/img/review.png)
 
 ## 安装（约 1 分钟）
 
@@ -51,15 +51,14 @@
 
 **`HTTP 400 ... supported API model names are ...`** — 你填的模型名这个接口不认。面板会列出它支持的名字，点一下就切过去重试：
 
-![模型名不被接受时](test/shots/07-model-error.png)
+![模型名不被接受时](docs/img/model-error.png)
 
 **扫不到题** — 等页面加载完再扫；编程练习页的编辑器要 2~3 秒才出来，脚本会自己等几秒。
 
 ## 想改脚本
 
-- `src/part1..6.js` 是源码分片，合并后就是 `juicemind-ai-assistant.user.js`
+- `src/part1..6.js` 是源码分片，合并后就是 `juicemind-ai-assistant.user.js`（合并命令见 `notes/site-analysis.md`）
 - 站点怎么选元素、怎么写进编辑器：见 [notes/site-analysis.md](notes/site-analysis.md)
-- 自测：`npm i && node test/run.js`
 
 ## 贡献
 
