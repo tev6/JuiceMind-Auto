@@ -11,24 +11,54 @@ const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const script = fs.readFileSync(path.join(ROOT, 'juicemind-ai-assistant.user.js'), 'utf8');
 const pageUrl = 'file:///' + path.join(__dirname, 'visual.html').replace(/\\/g, '/');
 
-const MOCK = `
-window.__MOCK__ = true;
-window.fetch = async function (url, init) {
-  const body = JSON.parse((init && init.body) || '{}');
-  const user = (body.messages || []).map((m) => m.content).join('\\n');
-  const joined = (body.messages || []).map((m) => m.content).join('\\n');
-  let payload = { type: 'short', answers: ['x'], explanation: 'mock' };
-  if (/类型：选择题|类型：多选题/.test(joined)) {
-    payload = { type: 'mcq', answers: ['A'], explanation: 'while 循环在条件为真时持续重复，for 循环遍历序列。' };
-  } else if (/类型：编程/.test(joined)) {
-    payload = { type: 'code', answers: ['def add(a, b):\\n    return a + b'], explanation: '直接返回两数之和。' };
-  } else if (/类型：简答|类型：论述/.test(joined)) {
-    payload = { type: 'short', answers: ['如果循环变量在循环体内从不改变，条件会一直为真，循环就永远不会结束。'], explanation: '' };
-  }
-  const json = { id: 'mock', model: 'mock-model', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(payload) } }], usage: { total_tokens: 42 } };
-  return new Response(JSON.stringify(json), { status: 200, headers: { 'Content-Type': 'application/json' } });
-};
-`;
+
+/* 假模型：对话返回 Markdown 内容，用来验证渲染与复制按钮 */
+const MD_ANSWER = [
+  '## while 和 for 的区别',
+  '',
+  '**while** 按条件重复，**for** 按序列遍历：',
+  '',
+  '- `while`：条件为真就一直跑，容易写成死循环',
+  '- `for`：次数确定时更省心',
+  '',
+  '> 记住：while 里一定要记得改循环变量。',
+  '',
+  '```python',
+  'i = 0',
+  'while i < 3:',
+  '    print(i)',
+  '    i += 1',
+  '```',
+  '',
+  '| 循环 | 适用场景 |',
+  '| --- | --- |',
+  '| while | 次数未知 |',
+  '| for | 次数已知 |',
+].join('\n');
+
+async function installMock(page) {
+  await page.evaluate((mdAnswer) => {
+    window.fetch = async function (url, init) {
+      const body = JSON.parse((init && init.body) || '{}');
+      const joined = (body.messages || []).map((m) => m.content).join('\n');
+      if (/学习助手/.test(joined)) {
+        const j = { choices: [{ message: { role: 'assistant', content: mdAnswer } }], model: 'mock' };
+        return new Response(JSON.stringify(j), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      let payload = { type: 'short', answers: ['x'], explanation: 'mock' };
+      if (/类型：选择题|类型：多选题/.test(joined)) {
+        payload = { type: 'mcq', answers: ['A'], explanation: 'while 循环在条件为真时持续重复，for 循环遍历序列。' };
+      } else if (/类型：编程/.test(joined)) {
+        payload = { type: 'code', answers: ['def add(a, b):\n    return a + b'], explanation: '直接返回两数之和。' };
+      } else if (/类型：简答|类型：论述/.test(joined)) {
+        payload = { type: 'short', answers: ['如果循环变量在循环体内从不改变，条件会一直为真，循环就永远不会结束。'], explanation: '' };
+      }
+      const json = { id: 'mock', model: 'mock-model', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(payload) } }], usage: { total_tokens: 42 } };
+      return new Response(JSON.stringify(json), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+  }, MD_ANSWER);
+}
+
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
@@ -42,7 +72,7 @@ window.fetch = async function (url, init) {
   await page.goto(pageUrl, { waitUntil: 'load' });
 
   // 假模型：在脚本注入前挂上，脚本里的 fetch 调用就会命中它
-  await page.evaluate(MOCK);
+  await installMock(page);
   await page.addScriptTag({ content: script });
   await page.waitForFunction(() => !!document.getElementById('jm-ai-host'));
 
@@ -67,6 +97,17 @@ window.fetch = async function (url, init) {
     wrap.style.top = '150px';
   });
 
+  // 展开一道题，看完整题干 + 选项 + 答案
+  const expandFirst = () =>
+    page.evaluate(() => {
+      const host = document.getElementById('jm-ai-host');
+      const q = host.shadowRoot.querySelector('.q');
+      const chev = q && q.querySelector('.chev');
+      if (chev) chev.click();
+      const pane = host.shadowRoot.querySelector('.pane[data-pane="solve"]');
+      if (pane) pane.scrollTop = 0;
+    });
+
   await clickInPanel('btn-scan');
   await new Promise((r) => setTimeout(r, 350));
   await page.screenshot({ path: path.join(OUT, '01-light-scanned.png') });
@@ -81,6 +122,13 @@ window.fetch = async function (url, init) {
   );
   await new Promise((r) => setTimeout(r, 400));
   await page.screenshot({ path: path.join(OUT, '02-light-answered.png') });
+
+  // 展开第一题：完整题干 + 全部选项 + 完整答案 + 复制按钮
+  await expandFirst();
+  await new Promise((r) => setTimeout(r, 350));
+  await page.screenshot({ path: path.join(OUT, '08-expanded.png') });
+  await expandFirst(); // 收回去
+  await new Promise((r) => setTimeout(r, 200));
 
   // 模型名被服务端拒绝时的「改用」提示
   await page.evaluate(() => {

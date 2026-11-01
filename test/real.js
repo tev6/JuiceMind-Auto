@@ -52,7 +52,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // 确保登录
   await page.goto(CLASS, { waitUntil: 'networkidle2', timeout: 60000 });
   await sleep(2500);
-  const needLogin = await page.evaluate(() => /\/login/.test(location.pathname) || !document.body.innerText.trim());
+  const needLogin = await page.evaluate(
+    () =>
+      /\/login/.test(location.pathname) ||
+      !document.querySelector('[data-testid="lesson-body-editor"],.ProseMirror,[role="tree"]')
+  );
   if (needLogin) {
     await page.goto('https://play.juicemind.com/login', { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForSelector('input[type=email]', { timeout: 20000 });

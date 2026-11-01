@@ -201,16 +201,75 @@ const doc = window.document;
   J.UI.renderSettings();
   const cfgBox = host.shadowRoot.querySelector('[data-ref="cfg"]');
   ok('模型输入框带建议列表', !!cfgBox.querySelector('datalist#jm-model-list'));
-  ok('建议里含 deepseek-v4.1-flash', /deepseek-v4\.1-flash/.test(cfgBox.querySelector('datalist').innerHTML));
+  ok('默认（OpenAI）建议里是 OpenAI 模型', /gpt-6\.1-sol/.test(cfgBox.querySelector('datalist').innerHTML));
 
   const mi = cfgBox.querySelector('[data-k="model"]');
+  const ps = cfgBox.querySelector('[data-k="preset"]');
+  ps.value = 'deepseek';
+  ps.dispatchEvent(new window.Event('change', { bubbles: true }));
+  ok('切到 DeepSeek 后建议含 deepseek-v4.1-flash', /deepseek-v4\.1-flash/.test(cfgBox.querySelector('datalist').innerHTML));
+  ok('modelSuggestions("deepseek") 含 v4.1-flash', J.modelSuggestions('deepseek').includes('deepseek-v4.1-flash'));
+  ok('各供应商都有模型名单', ['openai', 'deepseek', 'moonshot', 'openrouter', 'google', 'xai'].every((k) => (J.PRESETS[k].models || []).length >= 3));
+
   mi.value = 'my-custom-model-x';
   mi.dispatchEvent(new window.Event('input', { bubbles: true }));
-  const ps = cfgBox.querySelector('[data-k="preset"]');
   ps.value = 'openai';
   ps.dispatchEvent(new window.Event('change', { bubbles: true }));
   ok('切换服务商不覆盖手填的模型名', cfgBox.querySelector('[data-k="model"]').value === 'my-custom-model-x', cfgBox.querySelector('[data-k="model"]').value);
   J.Store.set({ model: 'gpt-4o-mini' });
+
+  console.log('\n【13】对话 Markdown 渲染');
+  const mdSrc = [
+    '## 参考解法',
+    '',
+    '可以用 **if / elif** 判断，`age` 是整数。',
+    '',
+    '1. 先读入年龄',
+    '2. 再判断区间',
+    '',
+    '> 注意：65 岁及以上算老年。',
+    '',
+    '```python',
+    'age = int(input("Enter age: "))',
+    'if age < 5:',
+    '    price = 0',
+    '```',
+  ].join('\n');
+  const mdFrag = J.MD.render(mdSrc);
+  const mdHost = doc.createElement('div');
+  mdHost.appendChild(mdFrag);
+  ok('标题被渲染成 h2', !!mdHost.querySelector('h2'), mdHost.innerHTML.slice(0, 80));
+  ok('粗体/行内代码存在', !!mdHost.querySelector('strong') && !!mdHost.querySelector('code'));
+  ok('有序列表 2 项', mdHost.querySelectorAll('ol li').length === 2);
+  ok('引用块存在', !!mdHost.querySelector('blockquote'));
+  ok('代码块带语言与复制按钮', !!mdHost.querySelector('.md-code pre code') && !!mdHost.querySelector('.md-code .copy-btn'), mdHost.querySelector('.md-lang') && mdHost.querySelector('.md-lang').textContent);
+  ok('代码块内容是原文', /int\(input/.test(mdHost.querySelector('.md-code pre code').textContent));
+
+  const xss = doc.createElement('div');
+  xss.appendChild(J.MD.render('<img src=x onerror=alert(1)> [x](javascript:alert(1))'));
+  ok('不执行原始 HTML', !xss.querySelector('img') && !xss.querySelector('a'), xss.innerHTML.slice(0, 80));
+
+  console.log('\n【14】扫描结果可展开');
+  const q0 = scan.questions[0];
+  const card0 = host.shadowRoot.querySelector('[data-qid="' + q0.id + '"]');
+  ok('卡片默认折叠', card0 && !card0.classList.contains('expanded'));
+  card0.querySelector('.chev').click();
+  const card0b = host.shadowRoot.querySelector('[data-qid="' + q0.id + '"]');
+  ok('点箭头后展开', card0b && card0b.classList.contains('expanded'));
+  ok('展开后箭头翻转', card0b.querySelector('.chev').textContent === '▴');
+  host.shadowRoot.querySelector('[data-ref="btn-expand"]').click();
+  ok('「展开全部」按钮生效', host.shadowRoot.querySelectorAll('.q').length > 0);
+  ok('展开按钮文案会跟随', /收起/.test(host.shadowRoot.querySelector('[data-ref="btn-expand"]').textContent), host.shadowRoot.querySelector('[data-ref="btn-expand"]').textContent);
+
+  console.log('\n【15】答案/代码可复制');
+  const cpBtn = host.shadowRoot.querySelector('.q .answer-wrap .copy-btn');
+  ok('答案卡片有复制按钮', !!cpBtn);
+  let copied = null;
+  J.copyText = (t) => {
+    copied = t;
+    return true;
+  };
+  ok('copyText 可调用', typeof window.__JMAI__.copyText === 'function');
 
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);

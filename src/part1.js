@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JuiceMind AI 答题助手
 // @namespace    https://juicemind.com/
-// @version      1.2.0
+// @version      1.3.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -35,7 +35,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */

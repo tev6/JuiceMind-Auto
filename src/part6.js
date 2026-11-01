@@ -199,21 +199,21 @@
           json: false,
           onDelta: (piece) => {
             acc += piece;
-            bubble.textContent = acc;
-            UI.scrollChatToEnd();
+            UI.updateBubble(bubble, acc);
           },
         });
         if (!acc && res && res.text) {
           // 服务端没走流式（或没有增量），直接用整段结果
           acc = res.text;
-          bubble.textContent = acc;
+          UI.updateBubble(bubble, acc);
         }
         if (!acc) {
           const res2 = await LLM.chat({ messages, stream: false, json: false });
           acc = res2.text;
-          bubble.textContent = acc;
+          UI.updateBubble(bubble, acc);
         }
         if (!acc) acc = '（模型没有返回内容）';
+        UI.fillBubble(bubble, 'assistant', acc);
         App.chat.push({ role: 'assistant', content: acc });
         UI.status('就绪');
       } catch (e) {
@@ -335,7 +335,7 @@
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, VERSION };
+        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, VERSION };
       } catch (e) {
         /* ignore */
       }

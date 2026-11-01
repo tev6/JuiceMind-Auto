@@ -1,41 +1,71 @@
 
   /* ============================ 6. 大模型客户端 ============================ */
 
+  /**
+   * 供应商预设。models 只是「下拉建议」，模型框任意填写。
+   * 名单按 2026-11 各家公开模型（DeepSeek / Kimi / OpenAI / xAI / Google / Anthropic / OpenRouter）整理，
+   * 新模型出来后改这里即可，不影响运行。
+   */
   const PRESETS = {
     openai: {
       label: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o-mini',
-      models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'o4-mini'],
+      model: 'gpt-6.1-sol',
+      models: ['gpt-6.1-terra-pro', 'gpt-6.1-terra', 'gpt-6.1-sol-pro', 'gpt-6.1-sol', 'gpt-6-luna', 'gpt-4.1', 'gpt-4o-mini'],
     },
     deepseek: {
       label: 'DeepSeek',
       baseUrl: 'https://api.deepseek.com/v1',
-      model: 'deepseek-chat',
-      // 官方名 + 自建/网关常见别名，全部只是「建议」，模型框任意填写
-      models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4.1-flash'],
+      model: 'deepseek-v4.1-flash',
+      models: ['deepseek-v4.1-flash', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-flash', 'deepseek-chat', 'deepseek-reasoner', 'deepseek-v3.2'],
     },
     moonshot: {
-      label: 'Moonshot',
+      label: 'Moonshot / Kimi',
       baseUrl: 'https://api.moonshot.cn/v1',
-      model: 'moonshot-v1-8k',
-      models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'kimi-k2-0905-preview'],
+      model: 'kimi-k3.1-pro',
+      models: ['kimi-k3.1-pro', 'kimi-k3', 'kimi-k2.7-code', 'kimi-k2.6', 'kimi-k2.5', 'kimi-k2-thinking', 'moonshot-v1-32k'],
     },
     openrouter: {
       label: 'OpenRouter',
       baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'openai/gpt-4o-mini',
-      models: ['openai/gpt-4o-mini', 'deepseek/deepseek-chat', 'anthropic/claude-sonnet-4'],
+      model: 'deepseek/deepseek-v4.1-flash',
+      models: [
+        'deepseek/deepseek-v4.1-flash',
+        'deepseek/deepseek-v4-pro',
+        'openai/gpt-6.1-sol',
+        'moonshotai/kimi-k3.1-pro',
+        'anthropic/claude-sonnet-5.5',
+        'google/gemini-3.8-flash',
+        'x-ai/grok-4.7',
+      ],
     },
-    ollama: { label: 'Ollama(本地)', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:7b', models: ['qwen2.5:7b', 'llama3.1:8b'] },
+    xai: {
+      label: 'xAI Grok',
+      baseUrl: 'https://api.x.ai/v1',
+      model: 'grok-4.7',
+      models: ['grok-4.7', 'grok-4.6', 'grok-4.5'],
+    },
+    google: {
+      label: 'Google Gemini（OpenAI 兼容）',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      model: 'gemini-3.8-flash',
+      models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite', 'gemini-4-argon'],
+    },
+    ollama: {
+      label: 'Ollama(本地)',
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'qwen2.5:7b',
+      models: ['qwen2.5:7b', 'qwen3:8b', 'llama3.1:8b'],
+    },
     custom: { label: '自定义', baseUrl: '', model: '', models: [] },
   };
 
-  /** 模型下拉的所有建议值（去重） */
-  function modelSuggestions() {
+  /** 某个预设的模型建议（不给预设则返回全部去重） */
+  function modelSuggestions(presetKey) {
     const set = new Set();
-    Object.keys(PRESETS).forEach((k) => (PRESETS[k].models || []).forEach((m) => set.add(m)));
-    ['gpt-4o-mini', 'deepseek-v4.1-flash', 'deepseek-flash', 'deepseek-v4-pro'].forEach((m) => set.add(m));
+    const keys = presetKey && PRESETS[presetKey] ? [presetKey] : Object.keys(PRESETS);
+    keys.forEach((k) => (PRESETS[k].models || []).forEach((m) => set.add(m)));
+    if (!presetKey) ['gpt-6.1-sol', 'deepseek-v4.1-flash', 'kimi-k3.1-pro', 'deepseek-flash', 'deepseek-v4-pro'].forEach((m) => set.add(m));
     return Array.from(set);
   }
 

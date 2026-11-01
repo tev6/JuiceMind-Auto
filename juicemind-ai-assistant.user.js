@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JuiceMind AI 答题助手
 // @namespace    https://juicemind.com/
-// @version      1.2.0
+// @version      1.3.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -35,7 +35,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -1258,41 +1258,71 @@
 
   /* ============================ 6. 大模型客户端 ============================ */
 
+  /**
+   * 供应商预设。models 只是「下拉建议」，模型框任意填写。
+   * 名单按 2026-11 各家公开模型（DeepSeek / Kimi / OpenAI / xAI / Google / Anthropic / OpenRouter）整理，
+   * 新模型出来后改这里即可，不影响运行。
+   */
   const PRESETS = {
     openai: {
       label: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o-mini',
-      models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'o4-mini'],
+      model: 'gpt-6.1-sol',
+      models: ['gpt-6.1-terra-pro', 'gpt-6.1-terra', 'gpt-6.1-sol-pro', 'gpt-6.1-sol', 'gpt-6-luna', 'gpt-4.1', 'gpt-4o-mini'],
     },
     deepseek: {
       label: 'DeepSeek',
       baseUrl: 'https://api.deepseek.com/v1',
-      model: 'deepseek-chat',
-      // 官方名 + 自建/网关常见别名，全部只是「建议」，模型框任意填写
-      models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4.1-flash'],
+      model: 'deepseek-v4.1-flash',
+      models: ['deepseek-v4.1-flash', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-flash', 'deepseek-chat', 'deepseek-reasoner', 'deepseek-v3.2'],
     },
     moonshot: {
-      label: 'Moonshot',
+      label: 'Moonshot / Kimi',
       baseUrl: 'https://api.moonshot.cn/v1',
-      model: 'moonshot-v1-8k',
-      models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'kimi-k2-0905-preview'],
+      model: 'kimi-k3.1-pro',
+      models: ['kimi-k3.1-pro', 'kimi-k3', 'kimi-k2.7-code', 'kimi-k2.6', 'kimi-k2.5', 'kimi-k2-thinking', 'moonshot-v1-32k'],
     },
     openrouter: {
       label: 'OpenRouter',
       baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'openai/gpt-4o-mini',
-      models: ['openai/gpt-4o-mini', 'deepseek/deepseek-chat', 'anthropic/claude-sonnet-4'],
+      model: 'deepseek/deepseek-v4.1-flash',
+      models: [
+        'deepseek/deepseek-v4.1-flash',
+        'deepseek/deepseek-v4-pro',
+        'openai/gpt-6.1-sol',
+        'moonshotai/kimi-k3.1-pro',
+        'anthropic/claude-sonnet-5.5',
+        'google/gemini-3.8-flash',
+        'x-ai/grok-4.7',
+      ],
     },
-    ollama: { label: 'Ollama(本地)', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:7b', models: ['qwen2.5:7b', 'llama3.1:8b'] },
+    xai: {
+      label: 'xAI Grok',
+      baseUrl: 'https://api.x.ai/v1',
+      model: 'grok-4.7',
+      models: ['grok-4.7', 'grok-4.6', 'grok-4.5'],
+    },
+    google: {
+      label: 'Google Gemini（OpenAI 兼容）',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      model: 'gemini-3.8-flash',
+      models: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite', 'gemini-4-argon'],
+    },
+    ollama: {
+      label: 'Ollama(本地)',
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'qwen2.5:7b',
+      models: ['qwen2.5:7b', 'qwen3:8b', 'llama3.1:8b'],
+    },
     custom: { label: '自定义', baseUrl: '', model: '', models: [] },
   };
 
-  /** 模型下拉的所有建议值（去重） */
-  function modelSuggestions() {
+  /** 某个预设的模型建议（不给预设则返回全部去重） */
+  function modelSuggestions(presetKey) {
     const set = new Set();
-    Object.keys(PRESETS).forEach((k) => (PRESETS[k].models || []).forEach((m) => set.add(m)));
-    ['gpt-4o-mini', 'deepseek-v4.1-flash', 'deepseek-flash', 'deepseek-v4-pro'].forEach((m) => set.add(m));
+    const keys = presetKey && PRESETS[presetKey] ? [presetKey] : Object.keys(PRESETS);
+    keys.forEach((k) => (PRESETS[k].models || []).forEach((m) => set.add(m)));
+    if (!presetKey) ['gpt-6.1-sol', 'deepseek-v4.1-flash', 'kimi-k3.1-pro', 'deepseek-flash', 'deepseek-v4-pro'].forEach((m) => set.add(m));
     return Array.from(set);
   }
 
@@ -2408,6 +2438,61 @@
 }
 @keyframes jmspin { to { transform: rotate(360deg); } }
 
+/* 折叠 / 展开 */
+.chev { margin-left: 2px; }
+.q.expanded { border-color: var(--jm-primary-border); box-shadow: 0 3px 12px -8px var(--jm-shadow); }
+.q:not(.expanded) .q-prompt { -webkit-line-clamp: 2; }
+.q-prompt { -webkit-line-clamp: 3; }
+.q.expanded .q-prompt { -webkit-line-clamp: unset; display: block; }
+.opts .opt:nth-child(n+7) { display: none; }
+.q.expanded .opts .opt:nth-child(n+7) { display: flex; }
+
+/* Markdown */
+.md { font-size: 12.5px; line-height: 1.6; color: var(--jm-text); white-space: normal; word-break: break-word; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { margin: 6px 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 10px 0 5px; font-size: 13px; font-weight: 650; line-height: 1.35; }
+.md h1 { font-size: 15px; }
+.md h2 { font-size: 14px; }
+.md ul, .md ol { margin: 5px 0; padding-left: 19px; }
+.md li { margin: 2px 0; }
+.md blockquote {
+  margin: 6px 0; padding: 3px 10px; border-left: 2px solid var(--jm-primary);
+  background: var(--jm-chip); border-radius: 0 8px 8px 0; color: var(--jm-text-2);
+}
+.md code {
+  font-family: "Roboto Mono", ui-monospace, monospace; font-size: 11.5px;
+  background: var(--jm-chip); border-radius: 5px; padding: 1px 5px; color: var(--jm-primary);
+}
+.md a { color: var(--jm-primary); text-decoration: underline; }
+.md hr { border: none; border-top: 1px solid var(--jm-border); margin: 10px 0; }
+.md table { border-collapse: collapse; margin: 7px 0; font-size: 11.5px; width: 100%; }
+.md th, .md td { border: 1px solid var(--jm-border); padding: 4px 7px; text-align: left; }
+.md th { background: var(--jm-chip); font-weight: 600; }
+
+/* 代码块 + 复制 */
+.md-code { border: 1px solid var(--jm-border); border-radius: 10px; overflow: hidden; margin: 7px 0; background: var(--jm-code-bg); }
+.md-code-bar {
+  display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 9px;
+  background: var(--jm-chip); border-bottom: 1px solid var(--jm-border);
+}
+.md-lang { flex: 1 1 auto; font-size: 10.5px; color: var(--jm-muted); font-family: "Roboto Mono", monospace; }
+.md-code pre { margin: 0; padding: 8px 10px; overflow: auto; max-height: 320px; }
+.md-code code {
+  background: none; padding: 0; color: var(--jm-text); font-size: 11.5px;
+  font-family: "Roboto Mono", ui-monospace, monospace; white-space: pre;
+}
+.copy-btn {
+  border: 1px solid var(--jm-border); background: transparent; color: var(--jm-muted);
+  border-radius: 7px; padding: 2px 7px; font-size: 10.5px; font-family: inherit; cursor: pointer; line-height: 1.5;
+}
+.copy-btn:hover { color: var(--jm-text); background: var(--jm-chip); }
+.copy-btn.ok { color: var(--jm-success); border-color: var(--jm-ok-border); }
+.answer-wrap { position: relative; }
+.answer-wrap .copy-btn { position: absolute; top: 5px; right: 5px; }
+.answer { padding-right: 52px; }
+
 /* 对话 */
 .chat-log { display: flex; flex-direction: column; gap: 8px; padding: 2px 0 8px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .cmsg { border-radius: 12px; padding: 8px 10px; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
@@ -2457,6 +2542,255 @@
 .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 `;
 
+  /* ------------------------- 复制 ------------------------- */
+
+  function copyText(text) {
+    const s = String(text == null ? '' : text);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(s).catch(() => fallbackCopy(s));
+        return true;
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return fallbackCopy(s);
+  }
+
+  function fallbackCopy(s) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = s;
+      ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function copyBtn(getText, label) {
+    const b = document.createElement('button');
+    b.className = 'copy-btn';
+    b.type = 'button';
+    b.textContent = label || '复制';
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const ok = copyText(getText());
+      const old = b.textContent;
+      b.textContent = ok ? '已复制' : '复制失败';
+      b.classList.toggle('ok', ok);
+      setTimeout(() => {
+        b.textContent = old;
+        b.classList.remove('ok');
+      }, 1200);
+      if (ok && UI && UI.toast) UI.toast('已复制');
+    });
+    return b;
+  }
+
+  /* ------------------------- Markdown ------------------------- */
+
+  const MD = {
+    /** 行内标记：`code` **粗** *斜* _斜_ ~~删除~~ [链接](url) */
+    inline(text) {
+      const frag = document.createDocumentFragment();
+      const src = String(text == null ? '' : text);
+      const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(__[^_\n]+__)|(_[^_\n]+_)|(~~[^~\n]+~~)|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))/g;
+      let last = 0;
+      let m;
+      const pushText = (t) => {
+        if (t) frag.appendChild(document.createTextNode(t));
+      };
+      while ((m = re.exec(src))) {
+        pushText(src.slice(last, m.index));
+        const tok = m[0];
+        let el;
+        if (m[1]) {
+          el = document.createElement('code');
+          el.textContent = tok.slice(1, -1);
+        } else if (m[2] || m[4]) {
+          el = document.createElement('strong');
+          el.textContent = tok.slice(2, -2);
+        } else if (m[3] || m[5]) {
+          el = document.createElement('em');
+          el.textContent = tok.slice(1, -1);
+        } else if (m[6]) {
+          el = document.createElement('del');
+          el.textContent = tok.slice(2, -2);
+        } else {
+          const mm = tok.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+          el = document.createElement('a');
+          el.textContent = mm[1];
+          el.href = mm[2];
+          el.target = '_blank';
+          el.rel = 'noopener noreferrer';
+        }
+        frag.appendChild(el);
+        last = m.index + tok.length;
+      }
+      pushText(src.slice(last));
+      return frag;
+    },
+
+    codeBlock(code, lang) {
+      const wrap = document.createElement('div');
+      wrap.className = 'md-code';
+      const bar = document.createElement('div');
+      bar.className = 'md-code-bar';
+      const l = document.createElement('span');
+      l.className = 'md-lang';
+      l.textContent = lang || 'text';
+      bar.append(l, copyBtn(() => code, '复制代码'));
+      const pre = document.createElement('pre');
+      const codeEl = document.createElement('code');
+      codeEl.textContent = code;
+      pre.appendChild(codeEl);
+      wrap.append(bar, pre);
+      return wrap;
+    },
+
+    /** 把一段 Markdown 渲染成 DOM（不解析原始 HTML，全部按文本处理） */
+    render(src) {
+      const frag = document.createDocumentFragment();
+      const lines = String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n');
+      const buf = [];
+      const flush = () => {
+        if (!buf.length) return;
+        const p = document.createElement('p');
+        p.appendChild(this.inline(buf.join('\n')));
+        frag.appendChild(p);
+        buf.length = 0;
+      };
+
+      let i = 0;
+      while (i < lines.length) {
+        const line = lines[i];
+
+        // 代码围栏
+        const fence = line.match(/^\s*```+\s*([\w+#.\-]*)\s*$/);
+        if (fence) {
+          flush();
+          i++;
+          const code = [];
+          while (i < lines.length && !/^\s*```+\s*$/.test(lines[i])) code.push(lines[i++]);
+          i++; // 跳过收尾围栏
+          frag.appendChild(this.codeBlock(code.join('\n'), fence[1]));
+          continue;
+        }
+
+        if (!line.trim()) {
+          flush();
+          i++;
+          continue;
+        }
+
+        // 标题
+        const h = line.match(/^(#{1,6})\s+(.*)$/);
+        if (h) {
+          flush();
+          const el = document.createElement('h' + Math.min(h[1].length, 6));
+          el.appendChild(this.inline(h[2]));
+          frag.appendChild(el);
+          i++;
+          continue;
+        }
+
+        // 分隔线
+        if (/^\s*([-*_])\1{2,}\s*$/.test(line)) {
+          flush();
+          frag.appendChild(document.createElement('hr'));
+          i++;
+          continue;
+        }
+
+        // 表格
+        if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1] || '')) {
+          flush();
+          const cells = (l) =>
+            l
+              .replace(/^\s*\|/, '')
+              .replace(/\|\s*$/, '')
+              .split('|')
+              .map((c) => c.trim());
+          const table = document.createElement('table');
+          const thead = document.createElement('thead');
+          const tr = document.createElement('tr');
+          cells(line).forEach((c) => {
+            const th = document.createElement('th');
+            th.textContent = c;
+            tr.appendChild(th);
+          });
+          thead.appendChild(tr);
+          table.appendChild(thead);
+          const tbody = document.createElement('tbody');
+          i += 2;
+          while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+            const row = document.createElement('tr');
+            cells(lines[i]).forEach((c) => {
+              const td = document.createElement('td');
+              td.textContent = c;
+              row.appendChild(td);
+            });
+            tbody.appendChild(row);
+            i++;
+          }
+          table.appendChild(tbody);
+          frag.appendChild(table);
+          continue;
+        }
+
+        // 无序列表
+        if (/^\s*[-*+]\s+/.test(line)) {
+          flush();
+          const ul = document.createElement('ul');
+          while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+            const li = document.createElement('li');
+            li.appendChild(this.inline(lines[i].replace(/^\s*[-*+]\s+/, '')));
+            ul.appendChild(li);
+            i++;
+          }
+          frag.appendChild(ul);
+          continue;
+        }
+
+        // 有序列表
+        if (/^\s*\d+[.)]\s+/.test(line)) {
+          flush();
+          const ol = document.createElement('ol');
+          while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+            const li = document.createElement('li');
+            li.appendChild(this.inline(lines[i].replace(/^\s*\d+[.)]\s+/, '')));
+            ol.appendChild(li);
+            i++;
+          }
+          frag.appendChild(ol);
+          continue;
+        }
+
+        // 引用
+        if (/^\s*>\s?/.test(line)) {
+          flush();
+          const quote = [];
+          while (i < lines.length && /^\s*>\s?/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ''));
+          const bq = document.createElement('blockquote');
+          bq.appendChild(this.render(quote.join('\n')));
+          frag.appendChild(bq);
+          continue;
+        }
+
+        buf.push(line);
+        i++;
+      }
+      flush();
+      return frag;
+    },
+  };
+
+
   const UI = {
     host: null,
     root: null,
@@ -2495,6 +2829,7 @@
                 <button class="btn primary" data-ref="btn-scan">扫描页面</button>
                 <button class="btn" data-ref="btn-solve">生成全部</button>
                 <button class="btn" data-ref="btn-fill">填入全部</button>
+                <button class="btn ghost" data-ref="btn-expand" disabled>展开全部</button>
               </div>
               <div data-ref="qlist"><div class="empty">点击「扫描页面」识别当前页面的题目<br/><span style="opacity:.7">支持教程+题目、选择题、简答、编程、排序、填空</span></div></div>
             </div>
@@ -2626,6 +2961,11 @@
       r['btn-scan'].addEventListener('click', () => Actions.scan(true));
       r['btn-solve'].addEventListener('click', () => Actions.solveAll());
       r['btn-fill'].addEventListener('click', () => Actions.fillAll());
+      r['btn-expand'].addEventListener('click', () => {
+        const qs = (App.scan && App.scan.questions) || [];
+        const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
+        this.expandAll(!allOn);
+      });
 
       // 对话
       r['btn-send'].addEventListener('click', () => Actions.sendChat());
@@ -2726,11 +3066,48 @@
       scan.questions.forEach((q, i) => frag.appendChild(this.renderQuestionCard(q, i)));
       box.innerHTML = '';
       box.appendChild(frag);
+      this.syncExpandBtn();
+    },
+
+    /** 展开状态（按题目 id 记住，重渲染不丢） */
+    _expanded: new Set(),
+
+    isExpanded(q) {
+      return this._expanded.has(q.id);
+    },
+
+    toggleExpand(q) {
+      const on = !this.isExpanded(q);
+      if (on) this._expanded.add(q.id);
+      else this._expanded.delete(q.id);
+      const idx = App.scan ? App.scan.questions.indexOf(q) : 0;
+      const old = this.refs.qlist.querySelector('[data-qid="' + q.id + '"]');
+      if (old) old.replaceWith(this.renderQuestionCard(q, idx));
+      this.syncExpandBtn();
+    },
+
+    expandAll(on) {
+      const qs = (App.scan && App.scan.questions) || [];
+      qs.forEach((q) => {
+        if (on) this._expanded.add(q.id);
+        else this._expanded.delete(q.id);
+      });
+      this.renderQuestions();
+    },
+
+    syncExpandBtn() {
+      const b = this.refs['btn-expand'];
+      if (!b) return;
+      const qs = (App.scan && App.scan.questions) || [];
+      const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
+      b.textContent = allOn ? '收起全部' : '展开全部';
+      b.disabled = !qs.length;
     },
 
     renderQuestionCard(q, i) {
+      const expanded = this.isExpanded(q);
       const card = document.createElement('div');
-      card.className = 'q' + (q.status === 'done' ? ' done' : q.status === 'error' ? ' error' : '');
+      card.className = 'q' + (q.status === 'done' ? ' done' : q.status === 'error' ? ' error' : '') + (expanded ? ' expanded' : '');
       card.dataset.qid = q.id;
 
       const hd = document.createElement('div');
@@ -2757,9 +3134,22 @@
       }
       hd.appendChild(st);
 
+      // 展开 / 收起
+      const chev = document.createElement('button');
+      chev.className = 'icon chev';
+      chev.type = 'button';
+      chev.title = expanded ? '收起' : '展开';
+      chev.textContent = expanded ? '▴' : '▾';
+      chev.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleExpand(q, card, chev);
+      });
+      hd.appendChild(chev);
+
       const prompt = document.createElement('div');
       prompt.className = 'q-prompt';
       prompt.textContent = q.prompt || '（未识别到题干）';
+      prompt.title = q.prompt || '';
 
       card.append(hd, prompt);
 
@@ -2767,14 +3157,14 @@
         const opts = document.createElement('div');
         opts.className = 'opts';
         const pickedLabels = this.pickedLabels(q);
-        q.options.slice(0, 8).forEach((o) => {
+        q.options.slice(0, 24).forEach((o) => {
           const row = document.createElement('div');
           row.className = 'opt' + (pickedLabels.has(o.label) ? ' pick' : '');
           const k = document.createElement('span');
           k.className = 'k';
           k.textContent = o.label;
           const t = document.createElement('span');
-          t.textContent = truncate(oneLine(o.text), 120);
+          t.textContent = expanded ? oneLine(o.text) : truncate(oneLine(o.text), 120);
           row.append(k, t);
           opts.appendChild(row);
         });
@@ -2782,14 +3172,17 @@
       }
 
       if (q.answer) {
+        const wrap = document.createElement('div');
+        wrap.className = 'answer-wrap';
         const ans = document.createElement('div');
         ans.className = 'answer';
         ans.textContent = this.answerPreview(q);
-        card.appendChild(ans);
+        wrap.append(ans, copyBtn(() => (q.answer.answers || []).join('\n'), '复制答案'));
+        card.appendChild(wrap);
         if (q.answer.explanation) {
           const ex = document.createElement('div');
           ex.className = 'explain';
-          ex.textContent = truncate(q.answer.explanation, 220);
+          ex.textContent = expanded ? q.answer.explanation : truncate(q.answer.explanation, 220);
           card.appendChild(ex);
         }
       }
@@ -2888,6 +3281,19 @@
 
     /* ------------------------- 对话 ------------------------- */
 
+    /** 填充一条消息的气泡内容：AI 用 Markdown，用户/系统用纯文本 */
+    fillBubble(bubble, role, content) {
+      bubble.textContent = '';
+      if (role === 'assistant') {
+        bubble.classList.add('md');
+        bubble.appendChild(MD.render(content || ''));
+      } else {
+        bubble.classList.remove('md');
+        bubble.textContent = content || '';
+      }
+      return bubble;
+    },
+
     renderChat() {
       const log = this.refs.chatlog;
       log.innerHTML = '';
@@ -2900,7 +3306,7 @@
       for (const m of App.chat) {
         const d = document.createElement('div');
         d.className = 'cmsg ' + (m.role === 'user' ? 'user' : m.role === 'assistant' ? 'ai' : 'sys');
-        d.textContent = m.content || '';
+        this.fillBubble(d, m.role, m.content);
         log.appendChild(d);
       }
       this.scrollChatToEnd();
@@ -2911,10 +3317,21 @@
       const log = this.renderChat();
       const d = document.createElement('div');
       d.className = 'cmsg ' + (role === 'user' ? 'user' : role === 'assistant' ? 'ai' : 'sys');
-      d.textContent = content;
+      this.fillBubble(d, role, content);
       log.appendChild(d);
       this.scrollChatToEnd();
       return d;
+    },
+
+    /** 流式更新：按 Markdown 重渲染（节流） */
+    updateBubble(bubble, text) {
+      bubble._mdPending = text;
+      if (bubble._mdTimer) return;
+      bubble._mdTimer = setTimeout(() => {
+        bubble._mdTimer = 0;
+        this.fillBubble(bubble, 'assistant', bubble._mdPending || '');
+        this.scrollChatToEnd();
+      }, 80);
     },
 
     scrollChatToEnd() {
@@ -2999,9 +3416,11 @@
       modelInput.addEventListener('input', () => {
         modelInput.dataset.edited = '1';
       });
+      this.renderModelDatalist(guessPreset);
       presetSel.addEventListener('change', () => {
         const p = PRESETS[presetSel.value];
         const prev = PRESETS[prevPreset];
+        this.renderModelDatalist(presetSel.value);
         if (p && p.baseUrl) {
           box.querySelector('[data-k="baseUrl"]').value = p.baseUrl;
           // 只有模型框没被手动改过（或还是上一个预设的默认值）才覆盖，避免冲掉用户填的模型名
@@ -3020,6 +3439,15 @@
         this.updateSub();
         this.toast('已恢复默认配置');
       });
+    },
+
+    /** 模型建议按当前服务商刷新（只是建议，不影响手动输入） */
+    renderModelDatalist(presetKey) {
+      const dl = this.refs.cfg && this.refs.cfg.querySelector('#jm-model-list');
+      if (!dl) return;
+      dl.innerHTML = modelSuggestions(presetKey)
+        .map((m) => '<option value="' + escapeHtml(m) + '"></option>')
+        .join('');
     },
 
     saveSettings() {
@@ -3252,21 +3680,21 @@
           json: false,
           onDelta: (piece) => {
             acc += piece;
-            bubble.textContent = acc;
-            UI.scrollChatToEnd();
+            UI.updateBubble(bubble, acc);
           },
         });
         if (!acc && res && res.text) {
           // 服务端没走流式（或没有增量），直接用整段结果
           acc = res.text;
-          bubble.textContent = acc;
+          UI.updateBubble(bubble, acc);
         }
         if (!acc) {
           const res2 = await LLM.chat({ messages, stream: false, json: false });
           acc = res2.text;
-          bubble.textContent = acc;
+          UI.updateBubble(bubble, acc);
         }
         if (!acc) acc = '（模型没有返回内容）';
+        UI.fillBubble(bubble, 'assistant', acc);
         App.chat.push({ role: 'assistant', content: acc });
         UI.status('就绪');
       } catch (e) {
@@ -3388,7 +3816,7 @@
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, VERSION };
+        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, VERSION };
       } catch (e) {
         /* ignore */
       }
