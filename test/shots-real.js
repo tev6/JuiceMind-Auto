@@ -6,7 +6,7 @@ const puppeteer = require('puppeteer-core');
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const PROFILE = path.join(__dirname, '..', '.chrome-profile');
 const script = fs.readFileSync(path.join(__dirname, '..', 'juicemind-ai-assistant.user.js'), 'utf8');
-const CLASS = 'https://play.juicemind.com/classes/MHr2d8H3qADVUf7P3pCh';
+const CLASS = process.env.JM_CLASS_URL || 'https://play.juicemind.com/classes/<班级ID>';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MOCK = `
