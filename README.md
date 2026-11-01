@@ -17,11 +17,11 @@
 
 点面板里的「设置」：
 
-| 填什么 | 例子 |
+| 填什么 | 例如 |
 | --- | --- |
 | API Base URL | `https://api.deepseek.com/v1`（也可先选「服务商预设」自动填） |
 | API Key | 你的 key |
-| 模型 | 任意名字，比如 `deepseek-chat` |
+| 模型 | 任意名字，例如 `deepseek-flash` |
 
 点「保存」→「测试连接」，看到成功就能用了。
 
@@ -56,6 +56,11 @@
 - `src/part1..6.js` 是源码分片，合并后就是 `juicemind-ai-assistant.user.js`
 - 站点怎么选元素、怎么写进编辑器：见 [notes/site-analysis.md](notes/site-analysis.md)
 - 自测：`npm i && node test/run.js`
+
+## 贡献
+本脚本由作者基于 APCSP 课程进行测试，暂未验证 JuiceMind 其他课程的适配情况。因此，作者无法保证该脚本在其他课程中也能完整运行。
+
+欢迎通过 PR 或 Issue 补充其他课程的适配、报告问题，或提出改进建议。
 
 ## 免责
 
