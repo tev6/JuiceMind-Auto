@@ -278,6 +278,43 @@
 .sum table { font-size: 11.5px; }
 .pane[data-pane="summary"] { overflow-y: auto; }
 .fab { touch-action: none; }
+
+/* 语言开关：拨动样式 */
+.lang-switch {
+  position: relative; width: 54px; height: 22px; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: space-between;
+  padding: 0 7px; border-radius: 11px; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--jm-border); background: var(--jm-chip);
+  font-size: 9.5px; font-weight: 700; color: var(--jm-text-2); letter-spacing: 0;
+}
+.lang-switch .knob {
+  position: absolute; top: 1px; left: 1px; width: 18px; height: 18px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--jm-primary), var(--jm-secondary));
+  box-shadow: 0 1px 4px -1px var(--jm-shadow); transition: transform .16s ease;
+}
+.lang-switch[data-lang="en"] .knob { transform: translateX(32px); }
+.lang-switch span { position: relative; z-index: 1; }
+.lang-switch[data-lang="zh"] .lz, .lang-switch[data-lang="en"] .le { color: #fff; }
+
+/* 高级设置折叠 */
+details.adv { margin: 10px 0 2px; border-top: 1px dashed var(--jm-border); padding-top: 8px; }
+details.adv > summary {
+  cursor: pointer; list-style: none; font-size: 11.5px; font-weight: 600; color: var(--jm-muted);
+  display: flex; align-items: center; gap: 5px; padding: 2px 0;
+}
+details.adv > summary::-webkit-details-marker { display: none; }
+details.adv > summary::before { content: '▸'; font-size: 10px; transition: transform .15s ease; }
+details.adv[open] > summary::before { transform: rotate(90deg); }
+details.adv[open] > summary { color: var(--jm-primary); }
+details.adv .adv-body { padding-top: 6px; }
+.field.check.sub { display: block; margin-left: 16px; margin-bottom: 9px; }
+.check.sub label { display: block; margin: 2px 0 4px; }
+.check.sub select { width: 100%; }
+.check.sub.disabled { opacity: .45; }
+.sum.streaming::after {
+  content: '▍'; color: var(--jm-primary); margin-left: 1px;
+  animation: jmpulse 1s steps(2, start) infinite;
+}
 .toast {
   position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%) translateY(6px);
   background: var(--jm-toast-bg); color: var(--jm-toast-text); padding: 7px 12px; border-radius: 10px;
@@ -321,18 +358,18 @@
     const b = document.createElement('button');
     b.className = 'copy-btn';
     b.type = 'button';
-    b.textContent = label || '复制';
+    b.textContent = label || L('复制', 'Copy');
     b.addEventListener('click', (e) => {
       e.stopPropagation();
       const ok = copyText(getText());
       const old = b.textContent;
-      b.textContent = ok ? '已复制' : '复制失败';
+      b.textContent = ok ? L('已复制', 'Copied') : L('复制失败', 'Copy failed');
       b.classList.toggle('ok', ok);
       setTimeout(() => {
         b.textContent = old;
         b.classList.remove('ok');
       }, 1200);
-      if (ok && UI && UI.toast) UI.toast('已复制');
+      if (ok && UI && UI.toast) UI.toast(L('已复制', 'Copied'));
     });
     return b;
   }
@@ -389,7 +426,7 @@
       const l = document.createElement('span');
       l.className = 'md-lang';
       l.textContent = lang || 'text';
-      bar.append(l, copyBtn(() => code, '复制代码'));
+      bar.append(l, copyBtn(() => code, L('复制代码', 'Copy code')));
       const pre = document.createElement('pre');
       const codeEl = document.createElement('code');
       codeEl.textContent = code;
@@ -550,59 +587,6 @@
       style.textContent = CSS;
       const wrap = document.createElement('div');
       wrap.className = 'wrap';
-      wrap.innerHTML = `
-        <div class="panel">
-          <div class="hd" data-drag="handle" title="按住拖动">
-            <span class="drag-grip"></span>
-            <div class="logo">${LOGO_SVG}</div>
-            <div class="hd-txt">
-              <div class="ttl">JuiceMind 助手</div>
-              <div class="sub" data-ref="sub">未配置 API</div>
-            </div>
-            <div class="hd-btns">
-              <button class="icon" data-ref="btn-collapse" title="收起 (${IS_MAC ? '⌥J' : 'Alt+J'})">–</button>
-              <button class="icon" data-ref="btn-hide" title="隐藏">×</button>
-            </div>
-          </div>
-          <div class="tabs">
-            <button class="tab on" data-tab="solve">答题</button>
-            <button class="tab" data-tab="summary">总结</button>
-            <button class="tab" data-tab="chat">对话</button>
-            <button class="tab" data-tab="cfg">设置</button>
-          </div>
-          <div class="body">
-            <div class="pane on" data-pane="solve">
-              <div class="bar">
-                <button class="btn primary" data-ref="btn-scan">扫描页面</button>
-                <button class="btn" data-ref="btn-solve">生成全部</button>
-                <button class="btn" data-ref="btn-fill">填入全部</button>
-                <button class="btn ghost" data-ref="btn-expand" disabled>展开全部</button>
-              </div>
-              <div data-ref="qlist"><div class="empty">点击「扫描页面」识别当前页面的题目<br/><span style="opacity:.7">支持教程+题目、选择题、简答、编程、排序、填空</span></div></div>
-            </div>
-            <div class="pane" data-pane="summary">
-              <div class="bar">
-                <button class="btn primary" data-ref="btn-summary">总结本页</button>
-                <button class="btn ghost" data-ref="btn-summary-copy" disabled>复制</button>
-              </div>
-              <div class="sum md" data-ref="sum-box">
-                <div class="empty">把这一页的教程压缩成速学笔记：一句话总结、核心要点、关键词表、易错点、自测题。<br/><span style="opacity:.7">内容只取自当前页面正文</span></div>
-              </div>
-            </div>
-            <div class="pane" data-pane="chat">
-              <div class="chat-log" data-ref="chatlog"></div>
-              <div class="chat-in">
-                <textarea data-ref="chat-in" placeholder="问点什么…（可自动带上当前页面内容）"></textarea>
-                <button class="btn primary" data-ref="btn-send">发送</button>
-              </div>
-            </div>
-            <div class="pane" data-pane="cfg" data-ref="cfg"></div>
-          </div>
-          <div class="ft"><span class="dot" data-ref="dot"></span><span class="ft-txt" data-ref="ft">就绪</span><span class="ft-usage" data-ref="usage"></span><button class="ft-stop" data-ref="btn-stop" hidden>停止</button></div>
-          <div class="toast" data-ref="toast"></div>
-        </div>
-        <button class="fab" title="打开助手 (${KB('J')})">${LOGO_SVG}</button>
-      `;
       shadow.appendChild(style);
       shadow.appendChild(wrap);
       document.documentElement.appendChild(host);
@@ -610,17 +594,94 @@
       this.host = host;
       this.root = shadow;
       this.$wrap = wrap;
-      this.$(shadow, wrap);
+      this.renderShell();
 
       this.applyPalette(Theme.read());
       Theme.observe((p) => this.applyPalette(p));
-      this.bind();
       this.restorePos();
-      this.renderSettings();
       this.updateSub();
       // 开了「隐藏悬浮窗」的：启动即不显示，只等 Alt+J
       if (Store.get('hidePanel')) this.setHidden(true);
       App.mounted = true;
+    },
+
+    /** 重建整个面板骨架（切换语言时也走这里） */
+    renderShell() {
+      const wrap = this.$wrap;
+      wrap.innerHTML = `
+        <div class="panel">
+          <div class="hd" data-drag="handle" title="${L('按住拖动', 'Drag to move')}">
+            <span class="drag-grip"></span>
+            <div class="logo">${LOGO_SVG}</div>
+            <div class="hd-txt">
+              <div class="ttl">${L('JuiceMind 助手', 'JuiceMind Assistant')}</div>
+              <div class="sub" data-ref="sub">${L('未配置 API', 'API not configured')}</div>
+            </div>
+            <div class="hd-btns">
+              <button class="lang-switch" data-ref="btn-lang" data-lang="${curLang()}" title="${L('切换中英文（界面与模型输出）', 'Switch language (UI & model output)')}">
+                <span class="knob"></span><span class="lz">中</span><span class="le">EN</span>
+              </button>
+              <button class="icon" data-ref="btn-hide" title="${L('关闭', 'Close')}">×</button>
+            </div>
+          </div>
+          <div class="tabs">
+            <button class="tab on" data-tab="solve">${L('答题', 'Solve')}</button>
+            <button class="tab" data-tab="summary">${L('总结', 'Summary')}</button>
+            <button class="tab" data-tab="chat">${L('对话', 'Chat')}</button>
+            <button class="tab" data-tab="cfg">${L('设置', 'Settings')}</button>
+          </div>
+          <div class="body">
+            <div class="pane on" data-pane="solve">
+              <div class="bar">
+                <button class="btn primary" data-ref="btn-scan">${L('扫描页面', 'Scan page')}</button>
+                <button class="btn" data-ref="btn-solve">${L('生成全部', 'Generate all')}</button>
+                <button class="btn" data-ref="btn-fill">${L('填入全部', 'Fill all')}</button>
+                <button class="btn ghost" data-ref="btn-expand" disabled>${L('展开全部', 'Expand all')}</button>
+              </div>
+              <div data-ref="qlist"><div class="empty">${L('点击「扫描页面」识别当前页面的题目', 'Click "Scan page" to find questions on this page')}<br/><span style="opacity:.7">${L('支持教程+题目、选择题、简答、编程、排序、填空', 'Tutorial + questions, multiple choice, short answer, coding, Parsons, fill-in-blank')}</span></div></div>
+            </div>
+            <div class="pane" data-pane="summary">
+              <div class="bar">
+                <button class="btn primary" data-ref="btn-summary">${L('总结本页', 'Summarize page')}</button>
+                <button class="btn ghost" data-ref="btn-summary-copy" disabled>${L('复制', 'Copy')}</button>
+              </div>
+              <div class="sum md" data-ref="sum-box">
+                <div class="empty">${L('把这一页的教程压缩成速学笔记', 'Condense this tutorial into quick-study notes')}<br/><span style="opacity:.7">${L('一句话总结、核心要点、关键词表、易错点、自测题', 'One-line summary, key points, glossary, pitfalls, self-check')}</span></div>
+              </div>
+            </div>
+            <div class="pane" data-pane="chat">
+              <div class="chat-log" data-ref="chatlog"></div>
+              <div class="chat-in">
+                <textarea data-ref="chat-in" placeholder="${L('问点什么…（可自动带上当前页面内容）', 'Ask anything… (page content is attached)')}"></textarea>
+                <button class="btn primary" data-ref="btn-send">${L('发送', 'Send')}</button>
+              </div>
+            </div>
+            <div class="pane" data-pane="cfg" data-ref="cfg"></div>
+          </div>
+          <div class="ft"><span class="dot" data-ref="dot"></span><span class="ft-txt" data-ref="ft">${L('就绪', 'Ready')}</span><span class="ft-usage" data-ref="usage"></span><button class="ft-stop" data-ref="btn-stop" hidden>${L('停止', 'Stop')}</button></div>
+          <div class="toast" data-ref="toast"></div>
+        </div>
+        <button class="fab" title="${L('打开助手', 'Open assistant')} (${KB('J')})">${LOGO_SVG}</button>
+      `;
+
+      this.$(this.root, wrap);
+      this.bind();
+      this.renderSettings();
+      this.renderQuestions();
+      this.renderChat();
+      this.renderSummary();
+      this.setTab(App.tab || 'solve');
+      this.updateSub();
+      this.updateUsage();
+    },
+
+    /** 切换界面语言：重绘骨架 + 配置，保持当前状态 */
+    toggleLang() {
+      const next = curLang() === 'en' ? 'zh' : 'en';
+      Store.set({ uiLang: next });
+      this.renderShell();
+      this.status(next === 'en' ? 'Language: English' : '语言：中文');
+      this.toast(next === 'en' ? 'Switched to English' : '已切换为中文');
     },
 
     $(shadow, wrap) {
@@ -744,13 +805,14 @@
         t.addEventListener('click', () => this.setTab(t.getAttribute('data-tab')));
       });
 
-      // 折叠 / 隐藏
+      // 关闭（只保留这一个；原先的「–」收起与它等价，已移除）
       const hideOne = () => {
         if (Store.get('hidePanel')) this.setHidden(true);
         else this.setCollapsed(true);
       };
-      r['btn-collapse'].addEventListener('click', hideOne);
       r['btn-hide'].addEventListener('click', hideOne);
+      // 中英文一键切换（同时决定模型输出语言）
+      if (r['btn-lang']) r['btn-lang'].addEventListener('click', () => this.toggleLang());
 
       // 主体按钮
       r['btn-scan'].addEventListener('click', () => Actions.scan(true));
@@ -769,7 +831,7 @@
         const t = App.summary && App.summary.text;
         if (!t) return;
         copyText(t);
-        UI.toast('已复制总结');
+        UI.toast(L('已复制总结', 'Summary copied'));
       });
 
       // 对话
@@ -894,8 +956,8 @@
         return;
       }
       const k = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
-      el.textContent = k(s.total) + ' tok · ' + s.requests + ' 次';
-      el.title = '本会话累计：输入 ' + s.prompt + ' / 输出 ' + s.completion + ' tokens，共 ' + s.requests + ' 次请求';
+      el.textContent = k(s.total) + ' tok · ' + s.requests + L(' 次', ' req');
+      el.title = L('本会话累计：', 'This session: ') + L('输入 ', 'in ') + s.prompt + ' / ' + L('输出 ', 'out ') + s.completion + ' tokens' + L('，共 ' + s.requests + ' 次请求', ', ' + s.requests + ' requests');
     },
 
     toast(msg, ms) {
@@ -911,7 +973,7 @@
       const el = this.refs.sub;
       if (!el) return;
       const hasKey = !!cfg.apiKey;
-      el.textContent = (hasKey ? cfg.model || '未设置模型' : '未配置 API Key') + (cfg.autoSubmit ? ' · 自动提交' : '');
+      el.textContent = (hasKey ? cfg.model || L('未设置模型', 'no model') : L('未配置 API Key', 'API key missing')) + (cfg.autoSubmit ? L(' · 自动提交', ' · auto-submit') : '');
     },
 
     /* ------------------------- 题目列表 ------------------------- */
@@ -922,12 +984,12 @@
       if (!scan || !scan.questions || !scan.questions.length) {
         const kind = App.scan ? App.scan.kind : PageModel.kind;
         const tips = {
-          class: '当前是课程首页：请从左侧导航点开一个条目（教程/题目）再扫描。',
-          quiz: '当前是测验页：进入题目后再扫描。',
-          gameroom: '当前是实时竞赛：进入题目后再扫描。',
-          generic: '没找到可作答的控件。若页面还在加载，稍等再扫描；也可以在「对话」里直接提问。',
+          class: L('当前是课程首页：请从左侧导航点开一个条目（教程/题目）再扫描。', 'This is the course home: open an item from the left nav, then scan.'),
+          quiz: L('当前是测验页：进入题目后再扫描。', 'This is the quiz overview: open a question first.'),
+          gameroom: L('当前是实时竞赛：进入题目后再扫描。', 'This is a live game: open a question first.'),
+          generic: L('没找到可作答的控件。若页面还在加载，稍等再扫描；也可以在「对话」里直接提问。', 'No answerable widgets found. If the page is still loading, wait and scan again — or just ask in Chat.'),
         };
-        box.innerHTML = `<div class="empty">${tips[kind] || '这一页没有检测到题目。<br/>如果是纯教程页，可直接用「对话」提问或让 AI 解释。'}</div>`;
+        box.innerHTML = `<div class="empty">${tips[kind] || L('这一页没有检测到题目。<br/>如果是纯教程页，可以直接用「总结」或「对话」。', 'No questions detected on this page.<br/>On a tutorial page, use Summary or Chat instead.')}</div>`;
         return;
       }
 
@@ -969,7 +1031,7 @@
       if (!b) return;
       const qs = (App.scan && App.scan.questions) || [];
       const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
-      b.textContent = allOn ? '收起全部' : '展开全部';
+      b.textContent = allOn ? L('收起全部', 'Collapse all') : L('展开全部', 'Expand all');
       b.disabled = !qs.length;
     },
 
@@ -996,10 +1058,10 @@
       if (q.status === 'running') st.innerHTML = '<span class="spin"></span>';
       else if (q.status === 'done') {
         st.className = 'msg ok';
-        st.textContent = '已生成';
+        st.textContent = L('已生成', 'done');
       } else if (q.status === 'error') {
         st.className = 'msg err';
-        st.textContent = '失败';
+        st.textContent = L('失败', 'failed');
       }
       hd.appendChild(st);
 
@@ -1007,7 +1069,7 @@
       const chev = document.createElement('button');
       chev.className = 'icon chev';
       chev.type = 'button';
-      chev.title = expanded ? '收起' : '展开';
+      chev.title = expanded ? L('收起', 'Collapse') : L('展开', 'Expand');
       chev.textContent = expanded ? '▴' : '▾';
       chev.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1017,7 +1079,7 @@
 
       const prompt = document.createElement('div');
       prompt.className = 'q-prompt';
-      prompt.textContent = q.prompt || '（未识别到题干）';
+      prompt.textContent = q.prompt || L('（未识别到题干）', '(no prompt found)');
       prompt.title = q.prompt || '';
 
       card.append(hd, prompt);
@@ -1046,7 +1108,7 @@
         const ans = document.createElement('div');
         ans.className = 'answer';
         ans.textContent = this.answerPreview(q);
-        wrap.append(ans, copyBtn(() => (q.answer.answers || []).join('\n'), '复制答案'));
+        wrap.append(ans, copyBtn(() => (q.answer.answers || []).join('\n'), L('复制答案', 'Copy answer')));
         card.appendChild(wrap);
         if (q.answer.explanation) {
           const ex = document.createElement('div');
@@ -1070,13 +1132,13 @@
         row.className = 'chips';
         const label = document.createElement('span');
         label.className = 'msg';
-        label.textContent = '改用：';
+        label.textContent = L('改用：', 'Use: ');
         row.appendChild(label);
         q.supportedModels.forEach((m) => {
           const b = document.createElement('button');
           b.className = 'btn chip';
           b.textContent = m;
-          b.title = '改用 ' + m + ' 并重试这题';
+          b.title = L('改用 ', 'Switch to ') + m + L(' 并重试这题', ' and retry');
           b.addEventListener('click', () => Actions.useModel(m, q));
           row.appendChild(b);
         });
@@ -1087,16 +1149,16 @@
       ft.className = 'q-ft';
       const bSolve = document.createElement('button');
       bSolve.className = 'btn primary';
-      bSolve.textContent = q.answer ? '重新生成' : '生成';
+      bSolve.textContent = q.answer ? L('重新生成', 'Regenerate') : L('生成', 'Generate');
       bSolve.addEventListener('click', () => Actions.solveOne(q));
       const bFill = document.createElement('button');
       bFill.className = 'btn';
-      bFill.textContent = '填入';
+      bFill.textContent = L('填入', 'Fill');
       bFill.disabled = !q.answer;
       bFill.addEventListener('click', () => Actions.fillOne(q));
       const bFocus = document.createElement('button');
       bFocus.className = 'btn ghost';
-      bFocus.textContent = '定位';
+      bFocus.textContent = L('定位', 'Locate');
       bFocus.addEventListener('click', () => {
         try {
           q.container.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1165,7 +1227,7 @@
         const empty = document.createElement('div');
         empty.className = 'empty';
         empty.innerHTML =
-          '把这一页的教程压缩成速学笔记：一句话总结、核心要点、关键词表、易错点、自测题。<br/><span style="opacity:.7">内容只取自当前页面正文</span>';
+          L('把这一页的教程压缩成速学笔记', 'Condense this tutorial into quick-study notes') + '<br/><span style="opacity:.7">' + L('一句话总结、核心要点、关键词表、易错点、自测题', 'One-line summary, key points, glossary, pitfalls, self-check') + '</span>';
         box.appendChild(empty);
         if (this.refs['btn-summary-copy']) this.refs['btn-summary-copy'].disabled = true;
         return;
@@ -1173,6 +1235,12 @@
       box.innerHTML = '';
       box.appendChild(MD.render(s.text));
       if (this.refs['btn-summary-copy']) this.refs['btn-summary-copy'].disabled = false;
+    },
+
+    /** 总结是否正在流式接收（显示光标） */
+    setSummaryStreaming(on) {
+      const box = this.summaryBox();
+      if (box) box.classList.toggle('streaming', !!on);
     },
 
     /** 流式更新总结正文（80ms 节流） */
@@ -1218,7 +1286,7 @@
       if (!App.chat.length) {
         const hint = document.createElement('div');
         hint.className = 'cmsg sys';
-        hint.textContent = '可以直接提问，例如「解释这一页的教程」「这题为什么选 B」。发送时会自动附带当前页面内容。';
+        hint.textContent = L('可以直接提问，例如「解释这一页的教程」「这题为什么选 B」。发送时会自动附带当前页面内容。', 'Ask anything, e.g. "explain this page" or "why is B correct?". Page content is attached automatically.');
         log.appendChild(hint);
       }
       for (const m of App.chat) {
@@ -1262,9 +1330,10 @@
     renderSettings() {
       const box = this.refs.cfg;
       const cfg = Store.get();
+      const outLang = cfg.outputLangCustom ? cfg.outputLang : cfg.uiLang;
       box.innerHTML = `
         <div class="field">
-          <label>服务商预设</label>
+          <label>${L('服务商预设', 'Provider preset')}</label>
           <select data-k="preset">
             ${Object.keys(PRESETS)
               .map((k) => `<option value="${k}">${PRESETS[k].label}</option>`)
@@ -1280,53 +1349,78 @@
           <input type="password" data-k="apiKey" value="${escapeHtml(cfg.apiKey)}" placeholder="sk-..." />
         </div>
         <div class="field">
-          <label>模型</label>
-          <input type="text" data-k="model" value="${escapeHtml(cfg.model)}" placeholder="任意模型名，例如 deepseek-v4.1-flash" list="jm-model-list" autocomplete="off" />
+          <label>${L('模型', 'Model')}</label>
+          <input type="text" data-k="model" value="${escapeHtml(cfg.model)}" placeholder="${L('任意模型名，例如 deepseek-v4.1-flash', 'Any model name, e.g. deepseek-v4.1-flash')}" list="jm-model-list" autocomplete="off" />
           <datalist id="jm-model-list">
             ${modelSuggestions().map((m) => `<option value="${escapeHtml(m)}"></option>`).join('')}
           </datalist>
-          <div class="hint" style="margin:4px 0 0">模型名是自由文本，下拉只是常见名字的建议；服务端报「supported model names」时按它给的填。</div>
+          <div class="hint" style="margin:4px 0 0">${L('模型名是自由文本，下拉只是常见名字的建议；服务端报「supported model names」时按它给的填。', 'The model name is free text; the dropdown only suggests common names. If the server lists "supported model names", use one of those.')}</div>
         </div>
-        <div class="grid2">
-          <div class="field">
-            <label>温度</label>
-            <input type="number" step="0.1" min="0" max="2" data-k="temperature" value="${cfg.temperature}" />
+        <label class="check"><input type="checkbox" data-k="jsonMode" ${cfg.jsonMode ? 'checked' : ''}/> ${L('JSON 输出模式（更稳的答案解析）', 'JSON output mode (more reliable parsing)')}</label>
+        <label class="check"><input type="checkbox" data-k="autoSubmit" ${cfg.autoSubmit ? 'checked' : ''}/> ${L('填入后自动点提交', 'Submit automatically after filling')}</label>
+        <label class="check"><input type="checkbox" data-k="autoRun" ${cfg.autoRun ? 'checked' : ''}/> ${L('进入新页面自动扫描并生成', 'Auto scan & generate on new pages')}</label>
+        <label class="check"><input type="checkbox" data-k="stream" ${cfg.stream ? 'checked' : ''}/> ${L('对话流式输出', 'Stream chat replies')}</label>
+        <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> ${L('隐藏悬浮窗（只用 Alt+J 唤出）', 'Hide panel (Alt+J only)')}</label>
+        <label class="check"><input type="checkbox" data-k="debug" ${cfg.debug ? 'checked' : ''}/> ${L('控制台调试日志', 'Console debug logs')}</label>
+
+        <details class="adv">
+          <summary>${L('高级设置', 'Advanced')}</summary>
+          <div class="adv-body">
+            <label class="check"><input type="checkbox" data-k="outputLangCustom" ${cfg.outputLangCustom ? 'checked' : ''}/> ${L('独立设置大模型输出语言', 'Set model output language separately')}</label>
+            <div class="field check sub ${cfg.outputLangCustom ? '' : 'disabled'}" data-ref="outlang-field">
+              <label>${L('大模型输出语言', 'Model output language')}</label>
+              <select data-k="outputLang" ${cfg.outputLangCustom ? '' : 'disabled'}>
+                <option value="zh" ${outLang === 'zh' ? 'selected' : ''}>${L('中文', 'Chinese')}</option>
+                <option value="en" ${outLang === 'en' ? 'selected' : ''}>${L('English', 'English')}</option>
+              </select>
+              <div class="hint" style="margin:4px 0 0">${L('不勾选时，模型输出跟随界面语言（右上角开关）。', 'When unchecked, model output follows the UI language (top-right switch).')}</div>
+            </div>
+            <div class="field">
+              <label>${L('解释语言（答案里的「为什么」）', 'Explanation language (the "why")')}</label>
+              <select data-k="language">
+                <option value="zh" ${cfg.language === 'en' ? '' : 'selected'}>${L('中文', 'Chinese')}</option>
+                <option value="en" ${cfg.language === 'en' ? 'selected' : ''}>English</option>
+              </select>
+            </div>
+            <div class="grid2">
+              <div class="field">
+                <label>${L('温度', 'Temperature')}</label>
+                <input type="number" step="0.1" min="0" max="2" data-k="temperature" value="${cfg.temperature}" />
+              </div>
+              <div class="field">
+                <label>${L('最大 tokens', 'Max tokens')}</label>
+                <input type="number" step="128" min="256" max="32768" data-k="maxTokens" value="${cfg.maxTokens}" />
+              </div>
+            </div>
+            <div class="field">
+              <label>${L('上下文长度（字）', 'Context length (chars)')}</label>
+              <input type="number" step="500" min="1000" max="30000" data-k="contextChars" value="${cfg.contextChars}" />
+            </div>
+            <div class="field">
+              <label>${L('补充提示词（可选）', 'Extra prompt (optional)')}</label>
+              <textarea data-k="systemPrompt" placeholder="${L('例如：回答尽量简短；代码用 Python 3。', 'e.g. keep answers short; code in Python 3.')}">${escapeHtml(cfg.systemPrompt)}</textarea>
+            </div>
           </div>
-          <div class="field">
-            <label>最大 tokens</label>
-            <input type="number" step="128" min="256" max="32768" data-k="maxTokens" value="${cfg.maxTokens}" />
-          </div>
-        </div>
-        <div class="field">
-          <label>上下文长度（字）</label>
-          <input type="number" step="500" min="1000" max="30000" data-k="contextChars" value="${cfg.contextChars}" />
-        </div>
-        <div class="field">
-          <label>解释语言</label>
-          <select data-k="language">
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-          </select>
-        </div>
-        <label class="check"><input type="checkbox" data-k="jsonMode" ${cfg.jsonMode ? 'checked' : ''}/> JSON 输出模式（更稳的答案解析）</label>
-        <label class="check"><input type="checkbox" data-k="autoSubmit" ${cfg.autoSubmit ? 'checked' : ''}/> 填入后自动点提交</label>
-        <label class="check"><input type="checkbox" data-k="autoRun" ${cfg.autoRun ? 'checked' : ''}/> 进入新页面自动扫描并生成</label>
-        <label class="check"><input type="checkbox" data-k="stream" ${cfg.stream ? 'checked' : ''}/> 对话流式输出</label>
-        <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> 隐藏悬浮窗（只用 Alt+J 唤出）</label>
-        <label class="check"><input type="checkbox" data-k="debug" ${cfg.debug ? 'checked' : ''}/> 控制台调试日志</label>
-        <div class="field">
-          <label>补充提示词（可选）</label>
-          <textarea data-k="systemPrompt" placeholder="例如：回答尽量简短；代码用 Python 3。">${escapeHtml(cfg.systemPrompt)}</textarea>
-        </div>
+        </details>
+
         <div class="sep"></div>
         <div class="row">
-          <button class="btn primary" data-act="save">保存</button>
-          <button class="btn" data-act="test">测试连接</button>
-          <button class="btn danger" data-act="reset">恢复默认</button>
+          <button class="btn primary" data-act="save">${L('保存', 'Save')}</button>
+          <button class="btn" data-act="test">${L('测试连接', 'Test connection')}</button>
+          <button class="btn danger" data-act="reset">${L('恢复默认', 'Reset')}</button>
         </div>
-        <div class="hint">v${VERSION} · 配置只存在本地（Tampermonkey 存储）。请求经 GM 通道发出，不受页面 CORS 限制。</div>
+        <div class="hint">v${VERSION} · ${L('配置只存在本地（Tampermonkey 存储）。请求经 GM 通道发出，不受页面 CORS 限制。', 'Config stays local (Tampermonkey storage). Requests go through the GM channel, so page CORS does not apply.')}</div>
       `;
 
+      // 「独立设置输出语言」联动：不勾选时下拉禁用并显示跟随值
+      const custom = box.querySelector('[data-k="outputLangCustom"]');
+      const sel = box.querySelector('[data-k="outputLang"]');
+      const field = box.querySelector('[data-ref="outlang-field"]');
+      custom.addEventListener('change', () => {
+        sel.disabled = !custom.checked;
+        if (field) field.classList.toggle('disabled', !custom.checked);
+        if (!custom.checked) sel.value = Store.get('uiLang');
+      });
       const presetSel = box.querySelector('[data-k="preset"]');
       const modelInput = box.querySelector('[data-k="model"]');
       const guessPreset = Object.keys(PRESETS).find((k) => PRESETS[k].baseUrl && PRESETS[k].baseUrl === cfg.baseUrl) || 'custom';
@@ -1345,7 +1439,7 @@
           // 只有模型框没被手动改过（或还是上一个预设的默认值）才覆盖，避免冲掉用户填的模型名
           const untouched = !modelInput.dataset.edited || !modelInput.value.trim() || modelInput.value === (prev && prev.model);
           if (p.model && untouched) modelInput.value = p.model;
-          else if (p.model && p.model !== modelInput.value) this.toast('保留了你的模型名：' + modelInput.value);
+          else if (p.model && p.model !== modelInput.value) this.toast(L('保留了你的模型名：', 'Kept your model name: ') + modelInput.value);
         }
         prevPreset = presetSel.value;
       });
@@ -1356,7 +1450,7 @@
         Store.reset();
         this.renderSettings();
         this.updateSub();
-        this.toast('已恢复默认配置');
+        this.toast(L('已恢复默认配置', 'Defaults restored'));
       });
     },
 
@@ -1384,6 +1478,8 @@
         maxTokens: Number(read('maxTokens')) || 2048,
         contextChars: Number(read('contextChars')) || 6000,
         language: read('language'),
+        outputLangCustom: read('outputLangCustom'),
+        outputLang: read('outputLang') || Store.get('uiLang'),
         jsonMode: read('jsonMode'),
         autoSubmit: read('autoSubmit'),
         autoRun: read('autoRun'),
@@ -1394,7 +1490,7 @@
       };
       Store.set(patch);
       this.updateSub();
-      this.toast('已保存');
-      this.status('配置已保存');
+      this.toast(L('已保存', 'Saved'));
+      this.status(L('配置已保存', 'Settings saved'));
     },
   };

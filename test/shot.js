@@ -222,11 +222,31 @@ async function installMock(page) {
   // 折叠态
   await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');
-    host.shadowRoot.querySelector('[data-ref="btn-collapse"]').click();
+    host.shadowRoot.querySelector('[data-ref="btn-hide"]').click();
   });
   await new Promise((r) => setTimeout(r, 250));
   await page.screenshot({ path: path.join(OUT, '06-dark-collapsed.png') });
 
+  // 高级设置（展开）
+  await page.evaluate(() => {
+    const host = document.getElementById('jm-ai-host');
+    host.shadowRoot.querySelector('.fab').click();
+    host.shadowRoot.querySelectorAll('.tab')[3].click();
+    const d = host.shadowRoot.querySelector('details.adv');
+    if (d) d.open = true;
+    const pane = host.shadowRoot.querySelector('.pane[data-pane="cfg"]');
+    if (pane) pane.scrollTop = 300;
+  });
+  await new Promise((r) => setTimeout(r, 400));
+  await page.screenshot({ path: path.join(OUT, '10-advanced.png') });
+
+  // 切到英文
+  await page.evaluate(() => {
+    const host = document.getElementById('jm-ai-host');
+    host.shadowRoot.querySelector('[data-ref="btn-lang"]').click();
+  });
+  await new Promise((r) => setTimeout(r, 500));
+  await page.screenshot({ path: path.join(OUT, '11-english.png') });
   const metrics = await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');
     const panel = host.shadowRoot.querySelector('.panel');

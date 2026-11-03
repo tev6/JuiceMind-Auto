@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.6.0
+// @version      1.7.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.6.0';
+  const VERSION = '1.7.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -212,7 +212,10 @@
     maxTokens: 2048,
     extraHeaders: '',
     jsonMode: true, // 请求 response_format=json_object，失败自动降级
-    language: 'zh', // 解释语言：zh | en
+    language: 'zh', // 旧字段：解释语言，保留兼容（新逻辑见 outputLangCustom）
+    uiLang: 'zh', // 界面语言：右上角一键切换，同时决定模型输出语言（默认中文）
+    outputLangCustom: false, // 是否单独设置大模型输出语言
+    outputLang: 'zh', // 仅当 outputLangCustom 为真时生效
     reasoning: false, // 是否请求「先思考再作答」（纯提示词层面）
     autoSubmit: false, // 填入后是否自动点提交
     autoRun: false, // 进入新页面是否自动扫描并生成
@@ -300,6 +303,30 @@
       }
     },
   };
+
+  /* ---- 语言：界面文案 + 大模型输出语言 ---- */
+
+  /** 界面语言：zh | en（右上角一键切换） */
+  function curLang() {
+    return Store.get('uiLang') === 'en' ? 'en' : 'zh';
+  }
+
+  /** 行内文案：把两套语言写在一起，随界面语言返回 */
+  function L(zh, en) {
+    return curLang() === 'en' ? en : zh;
+  }
+
+  /** 大模型输出语言：勾选了「独立设置」用 outputLang，否则跟随界面语言 */
+  function outputLanguage() {
+    const cfg = Store.get();
+    const code = cfg.outputLangCustom ? cfg.outputLang : cfg.uiLang;
+    return code === 'en' ? 'en' : 'zh';
+  }
+
+  /** 提示词里用的语言名 */
+  function outputLanguageName() {
+    return outputLanguage() === 'en' ? 'English' : '中文';
+  }
 
   /* ============================ 2. 主题感知 ============================ */
 

@@ -19,7 +19,7 @@
     answers: new Map(), // key -> {answer, at}
 
     systemPrompt() {
-      const lang = Store.get('language') === 'en' ? 'English' : '中文';
+      const lang = outputLanguageName();
       const extra = Store.get('systemPrompt') || '';
       return [
         '你是 JuiceMind 在线学习平台的作业助手，服务对象是正在上课的学生。',

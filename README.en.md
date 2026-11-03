@@ -42,11 +42,19 @@ Save, then hit **Test connection**.
 
 Shortcuts: `Alt + J` (`⌥ J` on macOS) show/hide · `Alt + Enter` generate all · `Alt + Shift + S` scan.
 
+**One-click language switch**: the `中 / EN` toggle at the top right flips the whole plugin — UI text *and* the model's output language.
+
+![English UI](docs/img/english.png)
+
 Each scanned card has a `▾` toggle for the full prompt, all options and the full answer. **Copy answer** on cards and **Copy code** on chat code blocks are one click.
 
 The footer shows cumulative token usage for this session; while a request is running you can hit **Stop** on the right of the footer and keep whatever was already generated. Chat replies are rendered as Markdown (headings, lists, tables, code blocks) and stream in token by token.
 
 Supported question types: multiple choice / multi-select / short answer / essay / fill-in-the-blank / Parsons, plus CodeMirror coding exercises and embedded IDE blocks.
+
+**Advanced settings** live in a collapsed section at the bottom of Settings: temperature, max tokens, context length, extra prompt, explanation language, and *Set model output language separately* — off by default, so model output follows the top-right switch.
+
+![Advanced settings](docs/img/advanced.png)
 
 ## FAQ
 
@@ -77,6 +85,7 @@ Tested against one APCSP course only — other JuiceMind courses are not verifie
 
 ## Changelog
 
+- **1.7.0** — one-click `中 / EN` switch in the header (UI text + model output language); the redundant collapse button is gone; Settings reorganized with an **Advanced** section (temperature / max tokens / context length / extra prompt / explanation language / separate model output language); the Summary tab now streams.
 - **1.6.0** — a **Summary** tab that turns a tutorial page into quick-study notes (copyable); macOS keyboard support (⌥J via e.code, so Option-combining does not break it); the collapsed bubble is now draggable too; vector logo icon.
 - **1.5.0** — auto-update for installed copies (`@updateURL`); automatic retry on 429/5xx/timeouts (exponential backoff, max 2, never after output started); token usage and a **Stop** button in the footer; `scripts/build.mjs` plus CI that keeps the bundle in sync with `src/`.
 - **1.4.0** — streaming chat with a live caret; draggable panel (header *and* footer); **Hide panel** option (Alt+J only); English README.

@@ -175,7 +175,7 @@ function ok(name, cond, extra) {
   console.log('\n【5】圆钮可拖动');
   await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');
-    host.shadowRoot.querySelector('[data-ref="btn-collapse"]').click();
+    host.shadowRoot.querySelector('[data-ref="btn-hide"]').click();
   });
   await sleep(250);
   const fabBefore = await page.evaluate(() => {
@@ -203,6 +203,51 @@ function ok(name, cond, extra) {
   });
   await sleep(200);
   ok('纯点击仍然能展开', fabClick === 'false', fabClick);
+
+
+  console.log('\n【6】中英文一键切换');
+  const langStart = await page.evaluate(() => {
+    const host = document.getElementById('jm-ai-host');
+    const b = host.shadowRoot.querySelector('[data-ref="btn-lang"]');
+    return {
+      exists: !!b,
+      lang: b && b.getAttribute('data-lang'),
+      tabs: Array.from(host.shadowRoot.querySelectorAll('.tab')).map((t) => t.textContent.trim()),
+    };
+  });
+  ok('右上角有语言开关', langStart.exists && langStart.lang === 'zh', langStart);
+
+  await page.evaluate(() => {
+    document.getElementById('jm-ai-host').shadowRoot.querySelector('[data-ref="btn-lang"]').click();
+  });
+  await sleep(350);
+  const afterEn = await page.evaluate(() => {
+    const host = document.getElementById('jm-ai-host');
+    return {
+      lang: host.shadowRoot.querySelector('[data-ref="btn-lang"]').getAttribute('data-lang'),
+      tabs: Array.from(host.shadowRoot.querySelectorAll('.tab')).map((t) => t.textContent.trim()),
+      scan: host.shadowRoot.querySelector('[data-ref="btn-scan"]').textContent.trim(),
+      cfg: Array.from(host.shadowRoot.querySelectorAll('[data-pane="cfg"] label')).slice(0, 4).map((l) => l.textContent.trim()),
+      uiLang: window.__JMAI__.Store.get('uiLang'),
+    };
+  });
+  ok('切到英文：标签变英文', afterEn.lang === 'en' && afterEn.tabs.join(',') === 'Solve,Summary,Chat,Settings', afterEn.tabs);
+  ok('切到英文：按钮文案跟着变', afterEn.scan === 'Scan page', afterEn.scan);
+  ok('切到英文：设置页也跟着变', afterEn.cfg.some((x) => /Provider preset|API Base URL/.test(x)), afterEn.cfg);
+  ok('语言写入配置', afterEn.uiLang === 'en', afterEn.uiLang);
+
+  await page.evaluate(() => {
+    document.getElementById('jm-ai-host').shadowRoot.querySelector('[data-ref="btn-lang"]').click();
+  });
+  await sleep(350);
+  const afterZh = await page.evaluate(() => {
+    const host = document.getElementById('jm-ai-host');
+    return {
+      lang: host.shadowRoot.querySelector('[data-ref="btn-lang"]').getAttribute('data-lang'),
+      tabs: Array.from(host.shadowRoot.querySelectorAll('.tab')).map((t) => t.textContent.trim()),
+    };
+  });
+  ok('再点一次回到中文', afterZh.lang === 'zh' && afterZh.tabs.join(',') === '答题,总结,对话,设置', afterZh.tabs);
 
   await browser.close();
   console.log('\n结果：' + pass + ' 通过 / ' + fail + ' 失败');

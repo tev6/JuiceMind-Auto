@@ -15,12 +15,21 @@
       App.scan = scan;
       UI.renderQuestions();
       const n = scan.questions.length;
-      const kindLabel = { class: '课程首页', item: '教学条目', quiz: '测验', gameroom: '实时竞赛', course: '公开课程', ide: 'IDE', generic: '普通页面' }[scan.kind] || scan.kind;
-      UI.status(n ? `识别到 ${n} 道题 · ${kindLabel}` : `未识别到题目 · ${kindLabel}`);
+      const kinds = {
+        class: L('课程首页', 'course home'),
+        item: L('教学条目', 'lesson item'),
+        quiz: L('测验', 'quiz'),
+        gameroom: L('实时竞赛', 'live game'),
+        course: L('公开课程', 'public course'),
+        ide: 'IDE',
+        generic: L('普通页面', 'page'),
+      };
+      const kindLabel = kinds[scan.kind] || scan.kind;
+      UI.status(n ? L(`识别到 ${n} 道题`, `${n} question(s) found`) + ' · ' + kindLabel : L('未识别到题目', 'No questions found') + ' · ' + kindLabel);
       if (verbose) {
         UI.setTab('solve');
-        if (!n) UI.toast('这一页没有可自动作答的题目');
-        else UI.toast(`识别到 ${n} 道题`);
+        if (!n) UI.toast(L('这一页没有可自动作答的题目', 'No auto-answerable questions here'));
+        else UI.toast(L(`识别到 ${n} 道题`, `${n} question(s) found`));
       }
       return scan;
     },
@@ -33,13 +42,13 @@
       q.status = 'running';
       q.error = '';
       UI.refreshCard(q);
-      UI.status('正在生成答案…', 'busy');
+      UI.status(L('正在生成答案…', 'Generating…'), 'busy');
       try {
         const answer = await Solvers.solveOne(q, App.scan || { context: PageModel.contextText(), title: PageModel.title(), kind: PageModel.kind }, App.scan ? App.scan.questions.indexOf(q) : 0);
         q.answer = answer;
         q.status = 'done';
-        UI.status('答案已生成');
-        UI.toast('已生成：' + truncate(UI.answerPreview(q).replace(/\n/g, ' '), 60));
+        UI.status(L('答案已生成', 'Answer ready'));
+        UI.toast(L('已生成：', 'Done: ') + truncate(UI.answerPreview(q).replace(/\n/g, ' '), 60));
         if (Store.get('autoSubmit')) {
           const r = await Appliers.apply(q);
           if (r.ok) await Appliers.submit(q);
@@ -48,8 +57,8 @@
         q.status = 'error';
         q.error = e.message || String(e);
         q.supportedModels = (e && e.supportedModels) || null;
-        UI.status('生成失败：' + q.error, 'err');
-        UI.toast('生成失败：' + q.error, 3600);
+        UI.status(L('生成失败：', 'Failed: ') + q.error, 'err');
+        UI.toast(L('生成失败：', 'Failed: ') + q.error, 3600);
       } finally {
         App.busy = false;
         UI.setStopVisible(false);
@@ -65,8 +74,8 @@
       App.busy = false;
       this.setBusy(false);
       UI.setStopVisible(false);
-      UI.status(wasBusy ? '已停止' : '就绪');
-      if (wasBusy) UI.toast('已停止当前请求');
+      UI.status(wasBusy ? L('已停止', 'Stopped') : L('就绪', 'Ready'));
+      if (wasBusy) UI.toast(L('已停止当前请求', 'Request stopped'));
     },
 
     /** 服务端说只支持某些模型名时，一键切过去并重试当前题 */
@@ -74,7 +83,7 @@
       Store.set({ model });
       UI.updateSub();
       UI.renderSettings();
-      UI.toast('模型改为 ' + model, 1600);
+      UI.toast(L('模型改为 ', 'Model set to ') + model, 1600);
       if (q) {
         q.supportedModels = null;
         q.error = '';
@@ -93,13 +102,13 @@
       this.setBusy(true);
       UI.setStopVisible(true);
       const total = scan.questions.length;
-      UI.status(`批量生成 0/${total}…`, 'busy');
+      UI.status(L(`批量生成 0/${total}…`, `Generating 0/${total}…`), 'busy');
       try {
         const res = await Solvers.solveAll(scan.questions, scan, {
           onBefore: (q, i) => {
             q.status = 'running';
             UI.refreshCard(q);
-            UI.status(`批量生成 ${i + 1}/${total}…`, 'busy');
+            UI.status(L(`批量生成 ${i + 1}/${total}…`, `Generating ${i + 1}/${total}…`), 'busy');
           },
           onDone: (q) => {
             UI.refreshCard(q);
@@ -108,8 +117,8 @@
             UI.refreshCard(q);
           },
         });
-        UI.status(`完成：成功 ${res.ok} · 失败 ${res.fail}`, res.fail ? 'err' : undefined);
-        if (res.ok) UI.toast(`已生成 ${res.ok} 道答案`);
+        UI.status(L(`完成：成功 ${res.ok} · 失败 ${res.fail}`, `Done: ${res.ok} ok · ${res.fail} failed`), res.fail ? 'err' : undefined);
+        if (res.ok) UI.toast(L(`已生成 ${res.ok} 道答案`, `${res.ok} answer(s) generated`));
       } finally {
         App.busy = false;
         this.setBusy(false);
@@ -120,11 +129,11 @@
 
     async fillOne(q) {
       if (!q.answer) {
-        UI.toast('先点「生成」');
+        UI.toast(L('先点「生成」', 'Generate first'));
         return;
       }
       const r = await Appliers.apply(q);
-      UI.toast(r.msg || (r.ok ? '已填入' : '填入失败'), r.ok ? 1800 : 3200);
+      UI.toast(r.msg || (r.ok ? L('已填入', 'Filled') : L('填入失败', 'Fill failed')), r.ok ? 1800 : 3200);
       UI.status(r.msg || '', r.ok ? undefined : 'err');
       if (r.ok && Store.get('autoSubmit')) {
         const s = await Appliers.submit(q);
@@ -136,7 +145,7 @@
     async fillAll() {
       const scan = App.scan;
       if (!scan || !scan.questions.length) {
-        UI.toast('先扫描页面');
+        UI.toast(L('先扫描页面', 'Scan the page first'));
         return;
       }
       let ok = 0;
@@ -150,8 +159,8 @@
         if (r.ok) ok++;
         await sleep(220);
       }
-      UI.status(`已填入 ${ok} 题` + (skip ? ` · ${skip} 题没有答案` : ''));
-      UI.toast(`已填入 ${ok} 题` + (skip ? `，${skip} 题需要先生成` : ''));
+      UI.status(L(`已填入 ${ok} 题`, `Filled ${ok}`) + (skip ? L(` · ${skip} 题没有答案`, ` · ${skip} without answers`) : ''));
+      UI.toast(L(`已填入 ${ok} 题`, `Filled ${ok}`) + (skip ? L(`，${skip} 题需要先生成`, `; ${skip} need generating first`) : ''));
     },
 
     setBusy(on) {
@@ -165,8 +174,8 @@
       const cfg = Store.get();
       if (!cfg.apiKey) {
         UI.setTab('cfg');
-        UI.status('请先填写 API Key', 'err');
-        UI.toast('先在「设置」里填 API Key 和模型');
+        UI.status(L('请先填写 API Key', 'API key required'), 'err');
+        UI.toast(L('先在「设置」里填 API Key 和模型', 'Set API key and model in Settings first'));
         try {
           UI.refs.cfg.querySelector('[data-k="apiKey"]').focus();
         } catch (e) {
@@ -176,7 +185,7 @@
       }
       if (!cfg.model) {
         UI.setTab('cfg');
-        UI.toast('请填写模型名，例如 gpt-4o-mini');
+        UI.toast(L('请填写模型名，例如 gpt-4o-mini', 'Enter a model name, e.g. gpt-4o-mini'));
         return false;
       }
       return true;
@@ -197,9 +206,9 @@
       App.busy = true;
       const cfg = Store.get();
       const sys = [
-        '你是 JuiceMind 学习平台上的学习助手，回答学生的提问。',
-        '如果问题涉及当前页面上的题目，请直接给出答案与关键步骤。',
-        `解释用${cfg.language === 'en' ? 'English' : '中文'}。`,
+        'You are a study assistant on the JuiceMind learning platform. Answer the student\'s question.',
+        'If the question is about the current page, give the answer and key steps directly.',
+        `Answer in ${outputLanguageName()}.`,
       ].join('\n');
       const ctx = PageModel.contextText(3000);
       const messages = [{ role: 'system', content: sys }];
@@ -209,7 +218,7 @@
       const bubble = UI.appendChat('assistant', '');
       bubble.classList.add('streaming');
       UI.setStopVisible(true);
-      UI.status('思考中…', 'busy');
+      UI.status(L('思考中…', 'Thinking…'), 'busy');
       let acc = '';
       let firstDelta = true;
       try {
@@ -220,7 +229,7 @@
           onDelta: (piece) => {
             if (firstDelta) {
               firstDelta = false;
-              UI.status('接收中…', 'busy');
+              UI.status(L('接收中…', 'Receiving…'), 'busy');
             }
             acc += piece;
             UI.updateBubble(bubble, acc);
@@ -236,22 +245,22 @@
           acc = res2.text;
           UI.updateBubble(bubble, acc);
         }
-        if (!acc) acc = '（模型没有返回内容）';
+        if (!acc) acc = L('（模型没有返回内容）', '(model returned nothing)');
         UI.fillBubble(bubble, 'assistant', acc);
         App.chat.push({ role: 'assistant', content: acc });
-        UI.status('就绪');
+        UI.status(L('就绪', 'Ready'));
       } catch (e) {
         const stopped = e && e.name === 'AbortError';
         if (stopped && acc) {
           // 主动停止：保留已生成的部分
-          UI.fillBubble(bubble, 'assistant', acc + '\n\n_（已停止）_');
-          App.chat.push({ role: 'assistant', content: acc + '\n\n_（已停止）_' });
-          UI.status('已停止');
+          UI.fillBubble(bubble, 'assistant', acc + '\n\n_' + L('（已停止）', '(stopped)') + '_');
+          App.chat.push({ role: 'assistant', content: acc + '\n\n_' + L('（已停止）', '(stopped)') + '_' });
+          UI.status(L('已停止', 'Stopped'));
         } else {
           bubble.remove();
-          App.chat.push({ role: 'assistant', content: '【请求失败】' + e.message });
-          UI.appendChat('assistant', '【请求失败】' + e.message);
-          UI.status('请求失败：' + e.message, 'err');
+          App.chat.push({ role: 'assistant', content: '【' + L('请求失败', 'Request failed') + '】' + e.message });
+          UI.appendChat('assistant', '【' + L('请求失败', 'Request failed') + '】' + e.message);
+          UI.status(L('请求失败：', 'Request failed: ') + e.message, 'err');
         }
       } finally {
         bubble.classList.remove('streaming');
@@ -269,7 +278,7 @@
       if (!this.ensureKey()) return;
       const ctx = PageModel.contextText(Math.max(Number(Store.get('contextChars')) || 6000, 8000));
       if (!ctx || ctx.length < 80) {
-        UI.toast('这一页没有可总结的正文');
+        UI.toast(L('这一页没有可总结的正文', 'No text to summarize on this page'));
         return;
       }
 
@@ -277,7 +286,8 @@
       UI.setStopVisible(true);
       UI.setTab('summary');
       UI.updateSummary('');
-      UI.status('正在总结本页…', 'busy');
+      UI.setSummaryStreaming(true);
+      UI.status(L('正在总结本页…', 'Summarizing…'), 'busy');
 
       const sys = [
         '你是学习助手。把用户给出的课程正文整理成「速学笔记」，帮助学生不用读完原文也能抓住重点。',
@@ -301,7 +311,7 @@
         '## 自测',
         '1. （2~3 个问题，答案放在括号里）',
         '',
-        `用${Store.get('language') === 'en' ? 'English' : '中文'}输出，总长度 300~500 字。`,
+        `用${outputLanguageName()}输出，总长度 300~500 字。`,
       ].join('\n');
 
       const messages = [
@@ -314,12 +324,12 @@
       try {
         const res = await LLM.chat({
           messages,
-          stream: !!Store.get('stream'),
+          stream: true, // 总结固定走流式：边生成边显示
           json: false,
           onDelta: (piece) => {
             if (first) {
               first = false;
-              UI.status('接收中…', 'busy');
+              UI.status(L('接收中…', 'Receiving…'), 'busy');
             }
             acc += piece;
             UI.updateSummary(acc);
@@ -329,19 +339,20 @@
           acc = res.text;
           UI.updateSummary(acc);
         }
-        if (!acc) throw new Error('模型没有返回内容');
+        if (!acc) throw new Error(L('模型没有返回内容', 'Model returned nothing'));
         UI.setSummaryText(acc);
-        UI.status('总结完成');
-        UI.toast('总结完成');
+        UI.status(L('总结完成', 'Summary ready'));
+        UI.toast(L('总结完成', 'Summary ready'));
       } catch (e) {
         if (e && e.name === 'AbortError') {
           if (acc) UI.setSummaryText(acc);
-          UI.status('已停止');
+          UI.status(L('已停止', 'Stopped'));
         } else {
-          UI.status('总结失败：' + e.message, 'err');
-          UI.toast('总结失败：' + e.message, 3600);
+          UI.status(L('总结失败：', 'Summary failed: ') + e.message, 'err');
+          UI.toast(L('总结失败：', 'Summary failed: ') + e.message, 3600);
         }
       } finally {
+        UI.setSummaryStreaming(false);
         App.busy = false;
         UI.setStopVisible(false);
         UI.updateUsage();
@@ -354,10 +365,10 @@
       UI.saveSettings();
       const cfg = Store.get();
       if (!cfg.apiKey) {
-        UI.toast('先填 API Key');
+        UI.toast(L('先填 API Key', 'Set API key first'));
         return;
       }
-      UI.status('正在测试连接…', 'busy');
+      UI.status(L('正在测试连接…', 'Testing connection…'), 'busy');
       try {
         const res = await LLM.chat({
           messages: [
@@ -369,11 +380,11 @@
           timeout: 45000,
         });
         UI.updateUsage();
-        UI.status('连接正常：' + truncate(oneLine(res.text), 40));
-        UI.toast('连接成功 ✓ ' + (res.model || cfg.model), 2600);
+        UI.status(L('连接正常：', 'Connection OK: ') + truncate(oneLine(res.text), 40));
+        UI.toast(L('连接成功 ✓ ', 'Connected ✓ ') + (res.model || cfg.model), 2600);
       } catch (e) {
-        UI.status('连接失败：' + e.message, 'err');
-        UI.toast('连接失败：' + e.message, 4200);
+        UI.status(L('连接失败：', 'Connection failed: ') + e.message, 'err');
+        UI.toast(L('连接失败：', 'Connection failed: ') + e.message, 4200);
       }
     },
   };
@@ -414,7 +425,7 @@
         const cfg = Store.get();
         if (!cfg.apiKey && UI.refs) {
           UI.setTab('cfg');
-          UI.status('首次使用：填写 API Key 与模型');
+          UI.status(L('首次使用：填写 API Key 与模型', 'First run: fill in API key and model'));
         }
       }, 600);
 
@@ -439,7 +450,7 @@
 
       // 请求重试时给出可见反馈
       LLM.onRetry = (err, n, max) => {
-        if (UI.refs) UI.status('请求失败，重试中 ' + n + '/' + max + '…', 'busy');
+        if (UI.refs) UI.status(L('请求失败，重试中 ', 'Retrying ') + n + '/' + max + '…', 'busy');
       };
 
       // 快捷键：用 e.code 判断物理键位，Mac 的 Option+J 会变成字符（∆），不能靠 e.key
