@@ -125,6 +125,35 @@
       }
     },
 
+    /** 本会话用量（只做展示，不做计价） */
+    stats: { requests: 0, prompt: 0, completion: 0, total: 0 },
+
+    resetStats() {
+      this.stats = { requests: 0, prompt: 0, completion: 0, total: 0 };
+    },
+
+    addUsage(usage) {
+      if (!usage) return;
+      const p = Number(usage.prompt_tokens) || 0;
+      const c = Number(usage.completion_tokens) || 0;
+      const t = Number(usage.total_tokens) || p + c;
+      if (!t) return;
+      this.stats.requests += 1;
+      this.stats.prompt += p;
+      this.stats.completion += c;
+      this.stats.total += t;
+    },
+
+    /** 可重试的错误：限流、网关、超时、网络抖动 */
+    isRetryable(err) {
+      if (!err) return false;
+      if (err.name === 'AbortError') return false;
+      const s = Number(err.status) || 0;
+      if ([408, 409, 425, 429, 500, 502, 503, 504].includes(s)) return true;
+      if (!s && /network|failed to fetch|timeout|超时|连接|networkerror/i.test(err.message || '')) return true;
+      return false;
+    },
+
     /**
      * @param {object} opts
      * @param {Array}  opts.messages
@@ -146,18 +175,28 @@
       };
       if (wantJson) body.response_format = { type: 'json_object' };
       if (!opts.stream) delete body.stream;
+      // 流式也要 usage：OpenAI 兼容实现支持 stream_options.include_usage
+      if (opts.stream) body.stream_options = { include_usage: true };
 
       const url = this.endpoint(cfg.baseUrl);
       const timeout = opts.timeout || (opts.stream ? 180000 : 120000);
+      // 已经吐出增量后就不重试了，否则会重复追加内容
+      let emitted = false;
+      const onDelta = opts.onDelta
+        ? (piece) => {
+            emitted = true;
+            opts.onDelta(piece);
+          }
+        : undefined;
 
       try {
-        return await this._send(url, body, { stream: !!opts.stream, onDelta: opts.onDelta, timeout, json: wantJson });
+        return await this._withRetry(() => this._send(url, body, { stream: !!opts.stream, onDelta, timeout, json: wantJson }), () => emitted);
       } catch (err) {
         // 降级 1：部分服务不支持 response_format
         if (body.response_format) {
           log('JSON 模式失败，降级重试', err.message);
           delete body.response_format;
-          return await this._send(url, body, { stream: !!opts.stream, onDelta: opts.onDelta, timeout, json: false });
+          return await this._withRetry(() => this._send(url, body, { stream: !!opts.stream, onDelta, timeout, json: false }), () => emitted);
         }
         // 降级 2：推理模型不接受 temperature / max_tokens
         if (/temperature|max_tokens|unsupported|invalid/i.test(err.message || '')) {
@@ -166,9 +205,33 @@
           delete b2.temperature;
           delete b2.max_tokens;
           b2.max_completion_tokens = Number(cfg.maxTokens);
-          return await this._send(url, b2, { stream: !!opts.stream, onDelta: opts.onDelta, timeout, json: false });
+          return await this._withRetry(() => this._send(url, b2, { stream: !!opts.stream, onDelta, timeout, json: false }), () => emitted);
         }
         throw err;
+      }
+    },
+
+    /** 最多重试 2 次，指数退避 + 抖动；已开始输出则不再重试 */
+    async _withRetry(fn, hasEmitted, retries) {
+      const max = retries == null ? 2 : retries;
+      let attempt = 0;
+      for (;;) {
+        try {
+          return await fn();
+        } catch (err) {
+          attempt++;
+          if (attempt > max || !this.isRetryable(err) || (hasEmitted && hasEmitted())) throw err;
+          const wait = Math.min(8000, 700 * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 250);
+          log('请求失败，' + wait + 'ms 后重试（第 ' + attempt + '/' + max + ' 次）', err.message);
+          if (this.onRetry) {
+            try {
+              this.onRetry(err, attempt, max);
+            } catch (e) {
+              /* ignore */
+            }
+          }
+          await new Promise((r) => setTimeout(r, wait));
+        }
       }
     },
 
@@ -217,7 +280,8 @@
                     text = '';
                   }
                 }
-                resolve({ text, raw: res.responseText, usage: null });
+                if (parser.usage) this.addUsage(parser.usage);
+                resolve({ text, raw: res.responseText, usage: parser.usage || null });
               } else {
                 resolve(this._parseCompletion(res.responseText));
               }
@@ -235,7 +299,9 @@
           },
           onabort: () => {
             this._active = null;
-            reject(new Error('已取消'));
+            const e = new Error('已取消');
+            e.name = 'AbortError';
+            reject(e);
           },
         });
         this._active = {
@@ -286,7 +352,8 @@
             text = '';
           }
         }
-        return { text, raw: rawAll, usage: null };
+        if (parser.usage) this.addUsage(parser.usage);
+        return { text, raw: rawAll, usage: parser.usage || null };
       } finally {
         clearTimeout(timer);
         this._active = null;
@@ -303,6 +370,7 @@
       if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
       const choice = (j.choices || [])[0] || {};
       const content = (choice.message && choice.message.content) || choice.text || '';
+      this.addUsage(j.usage);
       return { text: String(content), raw: text, usage: j.usage || null, model: j.model };
     },
 
@@ -351,6 +419,7 @@
           }
           try {
             const j = JSON.parse(data);
+            if (j.usage) parser.usage = j.usage;
             const d = j.choices && j.choices[0] && (j.choices[0].delta || j.choices[0].message);
             const piece = d && (d.content || '');
             if (piece) {

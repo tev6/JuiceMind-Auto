@@ -39,7 +39,9 @@ Save, then hit **Test connection**.
 
 Shortcuts: `Alt + J` show/hide · `Alt + Enter` generate all · `Alt + Shift + S` scan.
 
-Each scanned card has a `▾` toggle for the full prompt, all options and the full answer. **Copy answer** on cards and **Copy code** on chat code blocks are one click. Chat replies are rendered as Markdown (headings, lists, tables, code blocks) and stream in token by token.
+Each scanned card has a `▾` toggle for the full prompt, all options and the full answer. **Copy answer** on cards and **Copy code** on chat code blocks are one click.
+
+The footer shows cumulative token usage for this session; while a request is running you can hit **Stop** on the right of the footer and keep whatever was already generated. Chat replies are rendered as Markdown (headings, lists, tables, code blocks) and stream in token by token.
 
 Supported question types: multiple choice / multi-select / short answer / essay / fill-in-the-blank / Parsons, plus CodeMirror coding exercises and embedded IDE blocks.
 
@@ -61,7 +63,8 @@ Supported question types: multiple choice / multi-select / short answer / essay 
 
 - `src/part1..6.js` are the sources; they concatenate into `juicemind-ai-assistant.user.js`
 - How the site is scraped and written to: [notes/site-analysis.md](notes/site-analysis.md)
-- Tests: `npm i && node test/run.js` (jsdom units) and `node test/ui.js` (drag / hide / streaming)
+- After editing `src/`, run `node scripts/build.mjs`; CI fails if the bundle and sources drift apart
+- Installs auto-update: the header carries `@updateURL`, so Tampermonkey pulls a new build whenever the version changes
 
 ## Contributing
 
@@ -69,6 +72,7 @@ Tested against one APCSP course only — other JuiceMind courses are not verifie
 
 ## Changelog
 
+- **1.5.0** — auto-update for installed copies (`@updateURL`); automatic retry on 429/5xx/timeouts (exponential backoff, max 2, never after output started); token usage and a **Stop** button in the footer; `scripts/build.mjs` plus CI that keeps the bundle in sync with `src/`.
 - **1.4.0** — streaming chat with a live caret; draggable panel (header *and* footer); **Hide panel** option (Alt+J only); English README.
 - **1.3.0** — Markdown in chat; copy buttons for code and answers; expandable result cards; per-provider model lists (`deepseek-v4.1-flash`, `kimi-k3.1-pro`, `gpt-6.1-sol`, `gemini-3.8-flash`, …) plus xAI / Gemini presets.
 - **1.2.0** — free-form model names; one-click switch when the server rejects a model.

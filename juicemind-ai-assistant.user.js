@@ -1,7 +1,10 @@
 // ==UserScript==
 // @name         JuiceMind AI 答题助手
 // @namespace    https://juicemind.com/
-// @version      1.4.0
+// @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
+// @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
+// @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
+// @version      1.5.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -35,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -1383,6 +1386,35 @@
       }
     },
 
+    /** 本会话用量（只做展示，不做计价） */
+    stats: { requests: 0, prompt: 0, completion: 0, total: 0 },
+
+    resetStats() {
+      this.stats = { requests: 0, prompt: 0, completion: 0, total: 0 };
+    },
+
+    addUsage(usage) {
+      if (!usage) return;
+      const p = Number(usage.prompt_tokens) || 0;
+      const c = Number(usage.completion_tokens) || 0;
+      const t = Number(usage.total_tokens) || p + c;
+      if (!t) return;
+      this.stats.requests += 1;
+      this.stats.prompt += p;
+      this.stats.completion += c;
+      this.stats.total += t;
+    },
+
+    /** 可重试的错误：限流、网关、超时、网络抖动 */
+    isRetryable(err) {
+      if (!err) return false;
+      if (err.name === 'AbortError') return false;
+      const s = Number(err.status) || 0;
+      if ([408, 409, 425, 429, 500, 502, 503, 504].includes(s)) return true;
+      if (!s && /network|failed to fetch|timeout|超时|连接|networkerror/i.test(err.message || '')) return true;
+      return false;
+    },
+
     /**
      * @param {object} opts
      * @param {Array}  opts.messages
@@ -1404,18 +1436,28 @@
       };
       if (wantJson) body.response_format = { type: 'json_object' };
       if (!opts.stream) delete body.stream;
+      // 流式也要 usage：OpenAI 兼容实现支持 stream_options.include_usage
+      if (opts.stream) body.stream_options = { include_usage: true };
 
       const url = this.endpoint(cfg.baseUrl);
       const timeout = opts.timeout || (opts.stream ? 180000 : 120000);
+      // 已经吐出增量后就不重试了，否则会重复追加内容
+      let emitted = false;
+      const onDelta = opts.onDelta
+        ? (piece) => {
+            emitted = true;
+            opts.onDelta(piece);
+          }
+        : undefined;
 
       try {
-        return await this._send(url, body, { stream: !!opts.stream, onDelta: opts.onDelta, timeout, json: wantJson });
+        return await this._withRetry(() => this._send(url, body, { stream: !!opts.stream, onDelta, timeout, json: wantJson }), () => emitted);
       } catch (err) {
         // 降级 1：部分服务不支持 response_format
         if (body.response_format) {
           log('JSON 模式失败，降级重试', err.message);
           delete body.response_format;
-          return await this._send(url, body, { stream: !!opts.stream, onDelta: opts.onDelta, timeout, json: false });
+          return await this._withRetry(() => this._send(url, body, { stream: !!opts.stream, onDelta, timeout, json: false }), () => emitted);
         }
         // 降级 2：推理模型不接受 temperature / max_tokens
         if (/temperature|max_tokens|unsupported|invalid/i.test(err.message || '')) {
@@ -1424,9 +1466,33 @@
           delete b2.temperature;
           delete b2.max_tokens;
           b2.max_completion_tokens = Number(cfg.maxTokens);
-          return await this._send(url, b2, { stream: !!opts.stream, onDelta: opts.onDelta, timeout, json: false });
+          return await this._withRetry(() => this._send(url, b2, { stream: !!opts.stream, onDelta, timeout, json: false }), () => emitted);
         }
         throw err;
+      }
+    },
+
+    /** 最多重试 2 次，指数退避 + 抖动；已开始输出则不再重试 */
+    async _withRetry(fn, hasEmitted, retries) {
+      const max = retries == null ? 2 : retries;
+      let attempt = 0;
+      for (;;) {
+        try {
+          return await fn();
+        } catch (err) {
+          attempt++;
+          if (attempt > max || !this.isRetryable(err) || (hasEmitted && hasEmitted())) throw err;
+          const wait = Math.min(8000, 700 * Math.pow(2, attempt - 1)) + Math.floor(Math.random() * 250);
+          log('请求失败，' + wait + 'ms 后重试（第 ' + attempt + '/' + max + ' 次）', err.message);
+          if (this.onRetry) {
+            try {
+              this.onRetry(err, attempt, max);
+            } catch (e) {
+              /* ignore */
+            }
+          }
+          await new Promise((r) => setTimeout(r, wait));
+        }
       }
     },
 
@@ -1475,7 +1541,8 @@
                     text = '';
                   }
                 }
-                resolve({ text, raw: res.responseText, usage: null });
+                if (parser.usage) this.addUsage(parser.usage);
+                resolve({ text, raw: res.responseText, usage: parser.usage || null });
               } else {
                 resolve(this._parseCompletion(res.responseText));
               }
@@ -1493,7 +1560,9 @@
           },
           onabort: () => {
             this._active = null;
-            reject(new Error('已取消'));
+            const e = new Error('已取消');
+            e.name = 'AbortError';
+            reject(e);
           },
         });
         this._active = {
@@ -1544,7 +1613,8 @@
             text = '';
           }
         }
-        return { text, raw: rawAll, usage: null };
+        if (parser.usage) this.addUsage(parser.usage);
+        return { text, raw: rawAll, usage: parser.usage || null };
       } finally {
         clearTimeout(timer);
         this._active = null;
@@ -1561,6 +1631,7 @@
       if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
       const choice = (j.choices || [])[0] || {};
       const content = (choice.message && choice.message.content) || choice.text || '';
+      this.addUsage(j.usage);
       return { text: String(content), raw: text, usage: j.usage || null, model: j.model };
     },
 
@@ -1609,6 +1680,7 @@
           }
           try {
             const j = JSON.parse(data);
+            if (j.usage) parser.usage = j.usage;
             const d = j.choices && j.choices[0] && (j.choices[0].delta || j.choices[0].message);
             const piece = d && (d.content || '');
             if (piece) {
@@ -2544,7 +2616,13 @@
 .dot.busy { background: var(--jm-primary); animation: jmpulse 1.1s ease-in-out infinite; }
 .dot.err { background: var(--jm-error); }
 @keyframes jmpulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
-.ft-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.ft-usage { flex: 0 0 auto; font-variant-numeric: tabular-nums; opacity: .8; font-size: 10.5px; }
+.ft-stop {
+  flex: 0 0 auto; border: 1px solid var(--jm-error-border); background: transparent; color: var(--jm-error);
+  border-radius: 7px; padding: 1px 8px; font-size: 10.5px; font-family: inherit; cursor: pointer; line-height: 1.6;
+}
+.ft-stop:hover { background: var(--jm-error); color: #fff; }
 
 .toast {
   position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%) translateY(6px);
@@ -2856,7 +2934,7 @@
             </div>
             <div class="pane" data-pane="cfg" data-ref="cfg"></div>
           </div>
-          <div class="ft"><span class="dot" data-ref="dot"></span><span class="ft-txt" data-ref="ft">就绪</span></div>
+          <div class="ft"><span class="dot" data-ref="dot"></span><span class="ft-txt" data-ref="ft">就绪</span><span class="ft-usage" data-ref="usage"></span><button class="ft-stop" data-ref="btn-stop" hidden>停止</button></div>
           <div class="toast" data-ref="toast"></div>
         </div>
         <button class="fab">AI</button>
@@ -3020,6 +3098,7 @@
         const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
         this.expandAll(!allOn);
       });
+      r['btn-stop'].addEventListener('click', () => Actions.stop());
 
       // 对话
       r['btn-send'].addEventListener('click', () => Actions.sendChat());
@@ -3088,6 +3167,26 @@
       const dot = this.refs.dot;
       ft.textContent = msg;
       dot.className = 'dot' + (kind === 'busy' ? ' busy' : kind === 'err' ? ' err' : '');
+    },
+
+    /** 忙碌时显示「停止」按钮 */
+    setStopVisible(on) {
+      const b = this.refs && this.refs['btn-stop'];
+      if (b) b.hidden = !on;
+    },
+
+    /** 页脚用量：token 数与请求次数 */
+    updateUsage() {
+      const el = this.refs && this.refs.usage;
+      if (!el || typeof LLM === 'undefined' || !LLM.stats) return;
+      const s = LLM.stats;
+      if (!s.total) {
+        el.textContent = '';
+        return;
+      }
+      const k = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
+      el.textContent = k(s.total) + ' tok · ' + s.requests + ' 次';
+      el.title = '本会话累计：输入 ' + s.prompt + ' / 输出 ' + s.completion + ' tokens，共 ' + s.requests + ' 次请求';
     },
 
     toast(msg, ms) {
@@ -3573,6 +3672,7 @@
       if (App.busy) return;
       if (!this.ensureKey()) return;
       App.busy = true;
+      UI.setStopVisible(true);
       q.status = 'running';
       q.error = '';
       UI.refreshCard(q);
@@ -3595,8 +3695,21 @@
         UI.toast('生成失败：' + q.error, 3600);
       } finally {
         App.busy = false;
+        UI.setStopVisible(false);
+        UI.updateUsage();
         UI.refreshCard(q);
       }
+    },
+
+    /** 用户点「停止」：中断当前请求，保留已生成的内容 */
+    stop() {
+      const wasBusy = App.busy;
+      LLM.abort();
+      App.busy = false;
+      this.setBusy(false);
+      UI.setStopVisible(false);
+      UI.status(wasBusy ? '已停止' : '就绪');
+      if (wasBusy) UI.toast('已停止当前请求');
     },
 
     /** 服务端说只支持某些模型名时，一键切过去并重试当前题 */
@@ -3621,6 +3734,7 @@
 
       App.busy = true;
       this.setBusy(true);
+      UI.setStopVisible(true);
       const total = scan.questions.length;
       UI.status(`批量生成 0/${total}…`, 'busy');
       try {
@@ -3642,6 +3756,8 @@
       } finally {
         App.busy = false;
         this.setBusy(false);
+        UI.setStopVisible(false);
+        UI.updateUsage();
       }
     },
 
@@ -3735,6 +3851,7 @@
 
       const bubble = UI.appendChat('assistant', '');
       bubble.classList.add('streaming');
+      UI.setStopVisible(true);
       UI.status('思考中…', 'busy');
       let acc = '';
       let firstDelta = true;
@@ -3767,13 +3884,23 @@
         App.chat.push({ role: 'assistant', content: acc });
         UI.status('就绪');
       } catch (e) {
-        bubble.remove();
-        App.chat.push({ role: 'assistant', content: '【请求失败】' + e.message });
-        UI.appendChat('assistant', '【请求失败】' + e.message);
-        UI.status('请求失败：' + e.message, 'err');
+        const stopped = e && e.name === 'AbortError';
+        if (stopped && acc) {
+          // 主动停止：保留已生成的部分
+          UI.fillBubble(bubble, 'assistant', acc + '\n\n_（已停止）_');
+          App.chat.push({ role: 'assistant', content: acc + '\n\n_（已停止）_' });
+          UI.status('已停止');
+        } else {
+          bubble.remove();
+          App.chat.push({ role: 'assistant', content: '【请求失败】' + e.message });
+          UI.appendChat('assistant', '【请求失败】' + e.message);
+          UI.status('请求失败：' + e.message, 'err');
+        }
       } finally {
         bubble.classList.remove('streaming');
         App.busy = false;
+        UI.setStopVisible(false);
+        UI.updateUsage();
       }
     },
 
@@ -3797,6 +3924,7 @@
           json: false,
           timeout: 45000,
         });
+        UI.updateUsage();
         UI.status('连接正常：' + truncate(oneLine(res.text), 40));
         UI.toast('连接成功 ✓ ' + (res.model || cfg.model), 2600);
       } catch (e) {
@@ -3862,6 +3990,11 @@
           if (App.scan && App.scan.questions.length) await Actions.solveAll();
         }
       });
+
+      // 请求重试时给出可见反馈
+      LLM.onRetry = (err, n, max) => {
+        if (UI.refs) UI.status('请求失败，重试中 ' + n + '/' + max + '…', 'busy');
+      };
 
       // 快捷键
       window.addEventListener(

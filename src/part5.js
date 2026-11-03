@@ -250,7 +250,13 @@
 .dot.busy { background: var(--jm-primary); animation: jmpulse 1.1s ease-in-out infinite; }
 .dot.err { background: var(--jm-error); }
 @keyframes jmpulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
-.ft-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ft-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.ft-usage { flex: 0 0 auto; font-variant-numeric: tabular-nums; opacity: .8; font-size: 10.5px; }
+.ft-stop {
+  flex: 0 0 auto; border: 1px solid var(--jm-error-border); background: transparent; color: var(--jm-error);
+  border-radius: 7px; padding: 1px 8px; font-size: 10.5px; font-family: inherit; cursor: pointer; line-height: 1.6;
+}
+.ft-stop:hover { background: var(--jm-error); color: #fff; }
 
 .toast {
   position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%) translateY(6px);
@@ -562,7 +568,7 @@
             </div>
             <div class="pane" data-pane="cfg" data-ref="cfg"></div>
           </div>
-          <div class="ft"><span class="dot" data-ref="dot"></span><span class="ft-txt" data-ref="ft">就绪</span></div>
+          <div class="ft"><span class="dot" data-ref="dot"></span><span class="ft-txt" data-ref="ft">就绪</span><span class="ft-usage" data-ref="usage"></span><button class="ft-stop" data-ref="btn-stop" hidden>停止</button></div>
           <div class="toast" data-ref="toast"></div>
         </div>
         <button class="fab">AI</button>
@@ -726,6 +732,7 @@
         const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
         this.expandAll(!allOn);
       });
+      r['btn-stop'].addEventListener('click', () => Actions.stop());
 
       // 对话
       r['btn-send'].addEventListener('click', () => Actions.sendChat());
@@ -794,6 +801,26 @@
       const dot = this.refs.dot;
       ft.textContent = msg;
       dot.className = 'dot' + (kind === 'busy' ? ' busy' : kind === 'err' ? ' err' : '');
+    },
+
+    /** 忙碌时显示「停止」按钮 */
+    setStopVisible(on) {
+      const b = this.refs && this.refs['btn-stop'];
+      if (b) b.hidden = !on;
+    },
+
+    /** 页脚用量：token 数与请求次数 */
+    updateUsage() {
+      const el = this.refs && this.refs.usage;
+      if (!el || typeof LLM === 'undefined' || !LLM.stats) return;
+      const s = LLM.stats;
+      if (!s.total) {
+        el.textContent = '';
+        return;
+      }
+      const k = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
+      el.textContent = k(s.total) + ' tok · ' + s.requests + ' 次';
+      el.title = '本会话累计：输入 ' + s.prompt + ' / 输出 ' + s.completion + ' tokens，共 ' + s.requests + ' 次请求';
     },
 
     toast(msg, ms) {

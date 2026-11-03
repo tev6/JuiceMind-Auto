@@ -41,6 +41,8 @@
 
 扫描结果每张卡片右上角有 `▾`，点开看完整题干、全部选项和完整答案；卡片的「复制答案」和对话里代码块的「复制代码」都是一键复制。对话内容按 Markdown 渲染（标题 / 列表 / 表格 / 代码块）。
 
+页脚会显示本会话累计的 token 用量；请求进行中可点页脚右侧的「停止」中断，已生成的内容会保留。
+
 支持的题型：选择题 / 多选 / 简答 / 论述 / 填空 / 排序，以及 CodeMirror 编程练习和内嵌 IDE。
 
 ## 常见问题
@@ -57,8 +59,10 @@
 
 ## 想改脚本
 
-- `src/part1..6.js` 是源码分片，合并后就是 `juicemind-ai-assistant.user.js`（合并命令见 `notes/site-analysis.md`）
+- `src/part1..6.js` 是源码分片，合并后就是 `juicemind-ai-assistant.user.js`
 - 站点怎么选元素、怎么写进编辑器：见 [notes/site-analysis.md](notes/site-analysis.md)
+- 改完 `src/` 后运行 `node scripts/build.mjs` 重新生成 bundle；CI 会校验两者是否一致
+- 学生端会自动升级：脚本头带 `@updateURL`，Tampermonkey 每次检查到版本号变化就拉新版
 
 ## 贡献
 
@@ -68,6 +72,7 @@
 
 ## 更新记录
 
+- **1.5.0** — 学生端自动更新（`@updateURL`）；请求失败自动重试（429/5xx/超时，指数退避，最多 2 次，已开始输出则不重试）；页脚新增 token 用量与「停止」按钮；新增 `scripts/build.mjs` 与 CI 校验 bundle 与 src 一致。
 - **1.4.0** — 对话流式输出（带光标、可中断阅读）；悬浮窗可拖动（拖头部或底部，位置记住）；设置里新增「隐藏悬浮窗」（勾选后默认不显示，只用 `Alt+J` 唤出）；新增英文 README。
 - **1.3.0** — 对话支持 Markdown 渲染；对话代码块与答案卡片都能一键复制；扫描结果可逐题展开（含「展开全部」）；模型下拉按服务商分类，补到 `deepseek-v4.1-flash`、`kimi-k3.1-pro`、`gpt-6.1-sol`、`gemini-3.8-flash` 等当前型号，并新增 xAI / Gemini 预设。
 - **1.2.0** — 模型名自由填写；服务端拒绝模型名时给「改用 X」一键切换。

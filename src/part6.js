@@ -29,6 +29,7 @@
       if (App.busy) return;
       if (!this.ensureKey()) return;
       App.busy = true;
+      UI.setStopVisible(true);
       q.status = 'running';
       q.error = '';
       UI.refreshCard(q);
@@ -51,8 +52,21 @@
         UI.toast('生成失败：' + q.error, 3600);
       } finally {
         App.busy = false;
+        UI.setStopVisible(false);
+        UI.updateUsage();
         UI.refreshCard(q);
       }
+    },
+
+    /** 用户点「停止」：中断当前请求，保留已生成的内容 */
+    stop() {
+      const wasBusy = App.busy;
+      LLM.abort();
+      App.busy = false;
+      this.setBusy(false);
+      UI.setStopVisible(false);
+      UI.status(wasBusy ? '已停止' : '就绪');
+      if (wasBusy) UI.toast('已停止当前请求');
     },
 
     /** 服务端说只支持某些模型名时，一键切过去并重试当前题 */
@@ -77,6 +91,7 @@
 
       App.busy = true;
       this.setBusy(true);
+      UI.setStopVisible(true);
       const total = scan.questions.length;
       UI.status(`批量生成 0/${total}…`, 'busy');
       try {
@@ -98,6 +113,8 @@
       } finally {
         App.busy = false;
         this.setBusy(false);
+        UI.setStopVisible(false);
+        UI.updateUsage();
       }
     },
 
@@ -191,6 +208,7 @@
 
       const bubble = UI.appendChat('assistant', '');
       bubble.classList.add('streaming');
+      UI.setStopVisible(true);
       UI.status('思考中…', 'busy');
       let acc = '';
       let firstDelta = true;
@@ -223,13 +241,23 @@
         App.chat.push({ role: 'assistant', content: acc });
         UI.status('就绪');
       } catch (e) {
-        bubble.remove();
-        App.chat.push({ role: 'assistant', content: '【请求失败】' + e.message });
-        UI.appendChat('assistant', '【请求失败】' + e.message);
-        UI.status('请求失败：' + e.message, 'err');
+        const stopped = e && e.name === 'AbortError';
+        if (stopped && acc) {
+          // 主动停止：保留已生成的部分
+          UI.fillBubble(bubble, 'assistant', acc + '\n\n_（已停止）_');
+          App.chat.push({ role: 'assistant', content: acc + '\n\n_（已停止）_' });
+          UI.status('已停止');
+        } else {
+          bubble.remove();
+          App.chat.push({ role: 'assistant', content: '【请求失败】' + e.message });
+          UI.appendChat('assistant', '【请求失败】' + e.message);
+          UI.status('请求失败：' + e.message, 'err');
+        }
       } finally {
         bubble.classList.remove('streaming');
         App.busy = false;
+        UI.setStopVisible(false);
+        UI.updateUsage();
       }
     },
 
@@ -253,6 +281,7 @@
           json: false,
           timeout: 45000,
         });
+        UI.updateUsage();
         UI.status('连接正常：' + truncate(oneLine(res.text), 40));
         UI.toast('连接成功 ✓ ' + (res.model || cfg.model), 2600);
       } catch (e) {
@@ -318,6 +347,11 @@
           if (App.scan && App.scan.questions.length) await Actions.solveAll();
         }
       });
+
+      // 请求重试时给出可见反馈
+      LLM.onRetry = (err, n, max) => {
+        if (UI.refs) UI.status('请求失败，重试中 ' + n + '/' + max + '…', 'busy');
+      };
 
       // 快捷键
       window.addEventListener(
