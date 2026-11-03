@@ -261,6 +261,93 @@
       }
     },
 
+    /* ------------------------- 总结 ------------------------- */
+
+    /** 把当前页正文压缩成速学笔记 */
+    async summarize() {
+      if (App.busy) return;
+      if (!this.ensureKey()) return;
+      const ctx = PageModel.contextText(Math.max(Number(Store.get('contextChars')) || 6000, 8000));
+      if (!ctx || ctx.length < 80) {
+        UI.toast('这一页没有可总结的正文');
+        return;
+      }
+
+      App.busy = true;
+      UI.setStopVisible(true);
+      UI.setTab('summary');
+      UI.updateSummary('');
+      UI.status('正在总结本页…', 'busy');
+
+      const sys = [
+        '你是学习助手。把用户给出的课程正文整理成「速学笔记」，帮助学生不用读完原文也能抓住重点。',
+        '只依据正文，不要补充正文里没有的内容；正文没提的不要写。',
+        '严格按下面的 Markdown 结构输出，不要开场白、不要结束语：',
+        '',
+        '## 一句话总结',
+        '（一句话概括这页讲什么）',
+        '',
+        '## 核心要点',
+        '- （4~8 条，每条一句话解释）',
+        '',
+        '## 关键术语',
+        '| 术语 | 含义 |',
+        '| --- | --- |',
+        '（3~8 行）',
+        '',
+        '## 易错点',
+        '- （2~4 条；确实没有就写「无明显易错点」）',
+        '',
+        '## 自测',
+        '1. （2~3 个问题，答案放在括号里）',
+        '',
+        `用${Store.get('language') === 'en' ? 'English' : '中文'}输出，总长度 300~500 字。`,
+      ].join('\n');
+
+      const messages = [
+        { role: 'system', content: sys },
+        { role: 'user', content: '课程标题：' + PageModel.title() + '\n\n正文：\n' + ctx },
+      ];
+
+      let acc = '';
+      let first = true;
+      try {
+        const res = await LLM.chat({
+          messages,
+          stream: !!Store.get('stream'),
+          json: false,
+          onDelta: (piece) => {
+            if (first) {
+              first = false;
+              UI.status('接收中…', 'busy');
+            }
+            acc += piece;
+            UI.updateSummary(acc);
+          },
+        });
+        if (!acc && res && res.text) {
+          acc = res.text;
+          UI.updateSummary(acc);
+        }
+        if (!acc) throw new Error('模型没有返回内容');
+        UI.setSummaryText(acc);
+        UI.status('总结完成');
+        UI.toast('总结完成');
+      } catch (e) {
+        if (e && e.name === 'AbortError') {
+          if (acc) UI.setSummaryText(acc);
+          UI.status('已停止');
+        } else {
+          UI.status('总结失败：' + e.message, 'err');
+          UI.toast('总结失败：' + e.message, 3600);
+        }
+      } finally {
+        App.busy = false;
+        UI.setStopVisible(false);
+        UI.updateUsage();
+      }
+    },
+
     /* ------------------------- 连接测试 ------------------------- */
 
     async testConnection() {
@@ -336,9 +423,11 @@
         App.scan = null;
         PageModel.scope = null;
         App.chat = [];
+        App.summary = null;
         if (UI.refs) {
           UI.renderQuestions();
           UI.renderChat();
+          UI.renderSummary();
         }
         if (Store.get('autoRun')) {
           await waitForContent(12000);
@@ -353,19 +442,20 @@
         if (UI.refs) UI.status('请求失败，重试中 ' + n + '/' + max + '…', 'busy');
       };
 
-      // 快捷键
+      // 快捷键：用 e.code 判断物理键位，Mac 的 Option+J 会变成字符（∆），不能靠 e.key
       window.addEventListener(
         'keydown',
         (e) => {
           if (!e.altKey) return;
-          const k = (e.key || '').toLowerCase();
-          if (k === 'j') {
+          const code = e.code || '';
+          const key = (e.key || '').toLowerCase();
+          if (code === 'KeyJ' || key === 'j') {
             e.preventDefault();
             UI.toggleVisible();
-          } else if (k === 'enter') {
+          } else if (code === 'Enter' || key === 'enter') {
             e.preventDefault();
             Actions.solveAll();
-          } else if (k === 's' && e.shiftKey) {
+          } else if ((code === 'KeyS' || key === 's') && e.shiftKey) {
             e.preventDefault();
             Actions.scan(true);
           }
@@ -375,7 +465,7 @@
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, VERSION };
+        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, VERSION };
       } catch (e) {
         /* ignore */
       }

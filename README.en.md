@@ -6,6 +6,8 @@ A Tampermonkey userscript for [play.juicemind.com](https://play.juicemind.com). 
 
 ![Real page](docs/img/review.png)
 
+![Summary tab](docs/img/summary.png)
+
 ## Install (~1 min)
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome / Edge / Firefox.
@@ -35,9 +37,10 @@ Save, then hit **Test connection**.
 | --- | --- |
 | answer every question on the page | `Scan page` → `Generate all` → `Fill all` |
 | answer just one | `Generate` → `Fill` on that card |
+| skim a tutorial page | **Summary** tab -> Summarize page |
 | ask about a tutorial page | switch to the **Chat** tab |
 
-Shortcuts: `Alt + J` show/hide · `Alt + Enter` generate all · `Alt + Shift + S` scan.
+Shortcuts: `Alt + J` (`⌥ J` on macOS) show/hide · `Alt + Enter` generate all · `Alt + Shift + S` scan.
 
 Each scanned card has a `▾` toggle for the full prompt, all options and the full answer. **Copy answer** on cards and **Copy code** on chat code blocks are one click.
 
@@ -72,6 +75,7 @@ Tested against one APCSP course only — other JuiceMind courses are not verifie
 
 ## Changelog
 
+- **1.6.0** — a **Summary** tab that turns a tutorial page into quick-study notes (copyable); macOS keyboard support (⌥J via e.code, so Option-combining does not break it); the collapsed bubble is now draggable too; vector logo icon.
 - **1.5.0** — auto-update for installed copies (`@updateURL`); automatic retry on 429/5xx/timeouts (exponential backoff, max 2, never after output started); token usage and a **Stop** button in the footer; `scripts/build.mjs` plus CI that keeps the bundle in sync with `src/`.
 - **1.4.0** — streaming chat with a live caret; draggable panel (header *and* footer); **Hide panel** option (Alt+J only); English README.
 - **1.3.0** — Markdown in chat; copy buttons for code and answers; expandable result cards; per-provider model lists (`deepseek-v4.1-flash`, `kimi-k3.1-pro`, `gpt-6.1-sol`, `gemini-3.8-flash`, …) plus xAI / Gemini presets.

@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.5.0
+// @version      1.6.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.5.0';
+  const VERSION = '1.6.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -2372,6 +2372,7 @@
     tab: 'solve',
     busy: false,
     chat: [],
+    summary: null, // { text, url }
     mounted: false,
   };
 
@@ -2380,6 +2381,17 @@
     if (!rgb) return color; // 已经是关键字等无法解析的写法，原样使用
     return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
   }
+
+  /** 平台判断：Mac 上 Alt 显示为 ⌥，快捷键也走 e.code 以免 Option 组合键变成字符 */
+  const IS_MAC = /mac|iphone|ipad|ipod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '');
+  const KB = (k) => (IS_MAC ? '⌥' + k : 'Alt+' + k);
+
+  /** 站内自绘图标：四角星（后续可整体替换成设计稿） */
+  const LOGO_SVG =
+    '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">' +
+    '<path fill="currentColor" d="M12 2.6l1.9 5.3 5.3 1.9-5.3 1.9L12 17l-1.9-5.3L4.8 9.8l5.3-1.9L12 2.6z"/>' +
+    '<path fill="currentColor" opacity=".75" d="M18.6 14.4l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9.9-2.5z"/>' +
+    '</svg>';
 
   const CSS = `
 :host { all: initial; }
@@ -2624,6 +2636,14 @@
 }
 .ft-stop:hover { background: var(--jm-error); color: #fff; }
 
+.logo svg, .fab svg { display: block; }
+.logo { color: #fff; }
+.sum { font-size: 12.5px; }
+.sum .empty { padding: 18px 6px; }
+.sum h2 { font-size: 13.5px; }
+.sum table { font-size: 11.5px; }
+.pane[data-pane="summary"] { overflow-y: auto; }
+.fab { touch-action: none; }
 .toast {
   position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%) translateY(6px);
   background: var(--jm-toast-bg); color: var(--jm-toast-text); padding: 7px 12px; border-radius: 10px;
@@ -2900,18 +2920,19 @@
         <div class="panel">
           <div class="hd" data-drag="handle" title="按住拖动">
             <span class="drag-grip"></span>
-            <div class="logo">AI</div>
+            <div class="logo">${LOGO_SVG}</div>
             <div class="hd-txt">
               <div class="ttl">JuiceMind 助手</div>
               <div class="sub" data-ref="sub">未配置 API</div>
             </div>
             <div class="hd-btns">
-              <button class="icon" data-ref="btn-collapse" title="收起 (Alt+J)">–</button>
+              <button class="icon" data-ref="btn-collapse" title="收起 (${IS_MAC ? '⌥J' : 'Alt+J'})">–</button>
               <button class="icon" data-ref="btn-hide" title="隐藏">×</button>
             </div>
           </div>
           <div class="tabs">
             <button class="tab on" data-tab="solve">答题</button>
+            <button class="tab" data-tab="summary">总结</button>
             <button class="tab" data-tab="chat">对话</button>
             <button class="tab" data-tab="cfg">设置</button>
           </div>
@@ -2925,6 +2946,15 @@
               </div>
               <div data-ref="qlist"><div class="empty">点击「扫描页面」识别当前页面的题目<br/><span style="opacity:.7">支持教程+题目、选择题、简答、编程、排序、填空</span></div></div>
             </div>
+            <div class="pane" data-pane="summary">
+              <div class="bar">
+                <button class="btn primary" data-ref="btn-summary">总结本页</button>
+                <button class="btn ghost" data-ref="btn-summary-copy" disabled>复制</button>
+              </div>
+              <div class="sum md" data-ref="sum-box">
+                <div class="empty">把这一页的教程压缩成速学笔记：一句话总结、核心要点、关键词表、易错点、自测题。<br/><span style="opacity:.7">内容只取自当前页面正文</span></div>
+              </div>
+            </div>
             <div class="pane" data-pane="chat">
               <div class="chat-log" data-ref="chatlog"></div>
               <div class="chat-in">
@@ -2937,7 +2967,7 @@
           <div class="ft"><span class="dot" data-ref="dot"></span><span class="ft-txt" data-ref="ft">就绪</span><span class="ft-usage" data-ref="usage"></span><button class="ft-stop" data-ref="btn-stop" hidden>停止</button></div>
           <div class="toast" data-ref="toast"></div>
         </div>
-        <button class="fab">AI</button>
+        <button class="fab" title="打开助手 (${KB('J')})">${LOGO_SVG}</button>
       `;
       shadow.appendChild(style);
       shadow.appendChild(wrap);
@@ -3087,7 +3117,6 @@
       };
       r['btn-collapse'].addEventListener('click', hideOne);
       r['btn-hide'].addEventListener('click', hideOne);
-      wrap.querySelector('.fab').addEventListener('click', () => this.setCollapsed(false));
 
       // 主体按钮
       r['btn-scan'].addEventListener('click', () => Actions.scan(true));
@@ -3100,6 +3129,15 @@
       });
       r['btn-stop'].addEventListener('click', () => Actions.stop());
 
+      // 总结
+      r['btn-summary'].addEventListener('click', () => Actions.summarize());
+      r['btn-summary-copy'].addEventListener('click', () => {
+        const t = App.summary && App.summary.text;
+        if (!t) return;
+        copyText(t);
+        UI.toast('已复制总结');
+      });
+
       // 对话
       r['btn-send'].addEventListener('click', () => Actions.sendChat());
       r['chat-in'].addEventListener('keydown', (e) => {
@@ -3111,18 +3149,38 @@
 
       // 拖拽：头部 / 底部都能拖，document 级监听，鼠标与触屏通用
       const panel = wrap.querySelector('.panel');
+      const fab = wrap.querySelector('.fab');
       let drag = null;
+      let fabMoved = false;
+
+      const beginDrag = (e, fromFab) => {
+        const rect = wrap.getBoundingClientRect();
+        drag = { sx: e.clientX, sy: e.clientY, ox: rect.left, oy: rect.top, fab: !!fromFab, moved: false };
+        if (fromFab) fabMoved = false;
+        wrap.classList.add('dragging');
+        document.addEventListener('pointermove', onMove, true);
+        document.addEventListener('pointerup', onUp, true);
+        document.addEventListener('pointercancel', onUp, true);
+      };
+
       const onMove = (e) => {
         if (!drag) return;
+        const dx = e.clientX - drag.sx;
+        const dy = e.clientY - drag.sy;
+        if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) {
+          drag.moved = true;
+          if (drag.fab) fabMoved = true;
+        }
         const m = 8;
-        let left = drag.ox + (e.clientX - drag.sx);
-        let top = drag.oy + (e.clientY - drag.sy);
+        let left = drag.ox + dx;
+        let top = drag.oy + dy;
         left = Math.min(Math.max(m, left), window.innerWidth - 60);
         top = Math.min(Math.max(m, top), window.innerHeight - 40);
         wrap.style.left = left + 'px';
         wrap.style.top = top + 'px';
         if (e.cancelable) e.preventDefault();
       };
+
       const onUp = () => {
         if (!drag) return;
         drag = null;
@@ -3132,24 +3190,40 @@
         document.removeEventListener('pointercancel', onUp, true);
         this.savePos();
       };
+
+      // 面板：头部 / 底部可拖
       panel.addEventListener(
         'pointerdown',
         (e) => {
           if (e.button !== 0 && e.pointerType === 'mouse') return;
-          // 只从头部/底部拖；控件、正文、输入框都不拦
           const handle = e.target.closest('[data-drag="handle"], .ft');
           if (!handle) return;
           if (e.target.closest('button, a, input, textarea, select, .copy-btn')) return;
-          const rect = wrap.getBoundingClientRect();
-          drag = { sx: e.clientX, sy: e.clientY, ox: rect.left, oy: rect.top };
-          wrap.classList.add('dragging');
-          document.addEventListener('pointermove', onMove, true);
-          document.addEventListener('pointerup', onUp, true);
-          document.addEventListener('pointercancel', onUp, true);
+          beginDrag(e, false);
           e.preventDefault();
         },
         true
       );
+
+      // 收起后的圆钮：也能拖；拖过的这一次不当作点击
+      fab.addEventListener(
+        'pointerdown',
+        (e) => {
+          if (e.button !== 0 && e.pointerType === 'mouse') return;
+          beginDrag(e, true);
+          e.preventDefault();
+        },
+        true
+      );
+      fab.addEventListener('click', (e) => {
+        if (fabMoved) {
+          fabMoved = false;
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        this.setCollapsed(false);
+      });
 
       window.addEventListener('resize', debounce(() => this.restorePos(), 200));
     },
@@ -3158,6 +3232,7 @@
       App.tab = name;
       this.refs.tabs.forEach((t) => t.classList.toggle('on', t.getAttribute('data-tab') === name));
       this.refs.panes.forEach((p) => p.classList.toggle('on', p.getAttribute('data-pane') === name));
+      if (name === 'summary') this.renderSummary();
     },
 
     /* ------------------------- 状态 ------------------------- */
@@ -3437,6 +3512,55 @@
       const idx = App.scan.questions.indexOf(q);
       const fresh = this.renderQuestionCard(q, idx);
       old.replaceWith(fresh);
+    },
+
+    /* ------------------------- 总结 ------------------------- */
+
+    summaryBox() {
+      return this.refs && this.refs['sum-box'];
+    },
+
+    /** 渲染（或恢复缓存）当前页的总结 */
+    renderSummary() {
+      const box = this.summaryBox();
+      if (!box) return;
+      const s = App.summary;
+      const samePage = s && s.url === location.href;
+      if (!s || !s.text || !samePage) {
+        box.innerHTML = '';
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.innerHTML =
+          '把这一页的教程压缩成速学笔记：一句话总结、核心要点、关键词表、易错点、自测题。<br/><span style="opacity:.7">内容只取自当前页面正文</span>';
+        box.appendChild(empty);
+        if (this.refs['btn-summary-copy']) this.refs['btn-summary-copy'].disabled = true;
+        return;
+      }
+      box.innerHTML = '';
+      box.appendChild(MD.render(s.text));
+      if (this.refs['btn-summary-copy']) this.refs['btn-summary-copy'].disabled = false;
+    },
+
+    /** 流式更新总结正文（80ms 节流） */
+    updateSummary(text) {
+      this._sumPending = text;
+      if (this._sumTimer) return;
+      this._sumTimer = setTimeout(() => {
+        this._sumTimer = 0;
+        const box = this.summaryBox();
+        if (!box) return;
+        box.innerHTML = '';
+        box.appendChild(MD.render(this._sumPending || ''));
+        box.scrollTop = box.scrollHeight;
+      }, 80);
+    },
+
+    setSummaryText(text) {
+      App.summary = { text, url: location.href };
+      this._sumPending = text;
+      this.renderSummary();
+      const box = this.summaryBox();
+      if (box) box.scrollTop = 0;
     },
 
     /* ------------------------- 对话 ------------------------- */
@@ -3904,6 +4028,93 @@
       }
     },
 
+    /* ------------------------- 总结 ------------------------- */
+
+    /** 把当前页正文压缩成速学笔记 */
+    async summarize() {
+      if (App.busy) return;
+      if (!this.ensureKey()) return;
+      const ctx = PageModel.contextText(Math.max(Number(Store.get('contextChars')) || 6000, 8000));
+      if (!ctx || ctx.length < 80) {
+        UI.toast('这一页没有可总结的正文');
+        return;
+      }
+
+      App.busy = true;
+      UI.setStopVisible(true);
+      UI.setTab('summary');
+      UI.updateSummary('');
+      UI.status('正在总结本页…', 'busy');
+
+      const sys = [
+        '你是学习助手。把用户给出的课程正文整理成「速学笔记」，帮助学生不用读完原文也能抓住重点。',
+        '只依据正文，不要补充正文里没有的内容；正文没提的不要写。',
+        '严格按下面的 Markdown 结构输出，不要开场白、不要结束语：',
+        '',
+        '## 一句话总结',
+        '（一句话概括这页讲什么）',
+        '',
+        '## 核心要点',
+        '- （4~8 条，每条一句话解释）',
+        '',
+        '## 关键术语',
+        '| 术语 | 含义 |',
+        '| --- | --- |',
+        '（3~8 行）',
+        '',
+        '## 易错点',
+        '- （2~4 条；确实没有就写「无明显易错点」）',
+        '',
+        '## 自测',
+        '1. （2~3 个问题，答案放在括号里）',
+        '',
+        `用${Store.get('language') === 'en' ? 'English' : '中文'}输出，总长度 300~500 字。`,
+      ].join('\n');
+
+      const messages = [
+        { role: 'system', content: sys },
+        { role: 'user', content: '课程标题：' + PageModel.title() + '\n\n正文：\n' + ctx },
+      ];
+
+      let acc = '';
+      let first = true;
+      try {
+        const res = await LLM.chat({
+          messages,
+          stream: !!Store.get('stream'),
+          json: false,
+          onDelta: (piece) => {
+            if (first) {
+              first = false;
+              UI.status('接收中…', 'busy');
+            }
+            acc += piece;
+            UI.updateSummary(acc);
+          },
+        });
+        if (!acc && res && res.text) {
+          acc = res.text;
+          UI.updateSummary(acc);
+        }
+        if (!acc) throw new Error('模型没有返回内容');
+        UI.setSummaryText(acc);
+        UI.status('总结完成');
+        UI.toast('总结完成');
+      } catch (e) {
+        if (e && e.name === 'AbortError') {
+          if (acc) UI.setSummaryText(acc);
+          UI.status('已停止');
+        } else {
+          UI.status('总结失败：' + e.message, 'err');
+          UI.toast('总结失败：' + e.message, 3600);
+        }
+      } finally {
+        App.busy = false;
+        UI.setStopVisible(false);
+        UI.updateUsage();
+      }
+    },
+
     /* ------------------------- 连接测试 ------------------------- */
 
     async testConnection() {
@@ -3979,9 +4190,11 @@
         App.scan = null;
         PageModel.scope = null;
         App.chat = [];
+        App.summary = null;
         if (UI.refs) {
           UI.renderQuestions();
           UI.renderChat();
+          UI.renderSummary();
         }
         if (Store.get('autoRun')) {
           await waitForContent(12000);
@@ -3996,19 +4209,20 @@
         if (UI.refs) UI.status('请求失败，重试中 ' + n + '/' + max + '…', 'busy');
       };
 
-      // 快捷键
+      // 快捷键：用 e.code 判断物理键位，Mac 的 Option+J 会变成字符（∆），不能靠 e.key
       window.addEventListener(
         'keydown',
         (e) => {
           if (!e.altKey) return;
-          const k = (e.key || '').toLowerCase();
-          if (k === 'j') {
+          const code = e.code || '';
+          const key = (e.key || '').toLowerCase();
+          if (code === 'KeyJ' || key === 'j') {
             e.preventDefault();
             UI.toggleVisible();
-          } else if (k === 'enter') {
+          } else if (code === 'Enter' || key === 'enter') {
             e.preventDefault();
             Actions.solveAll();
-          } else if (k === 's' && e.shiftKey) {
+          } else if ((code === 'KeyS' || key === 's') && e.shiftKey) {
             e.preventDefault();
             Actions.scan(true);
           }
@@ -4018,7 +4232,7 @@
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, VERSION };
+        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, VERSION };
       } catch (e) {
         /* ignore */
       }
