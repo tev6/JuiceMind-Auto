@@ -2,18 +2,18 @@
 
 # JuiceMind AI 答题助手
 
-给 [play.juicemind.com](https://play.juicemind.com) 用的 Tampermonkey 脚本：识别页面上的题目，调用**你自己的**大模型 API 生成答案，再填回页面。
+给 [play.juicemind.com](https://play.juicemind.com) 用的 Tampermonkey 脚本：识别页面上的题目，调用大模型 API 生成答案，再全流程、全自动地填回页面并提交。
 
 ![真实页面](docs/img/review.png)
 
 ## 安装（约 1 分钟）
 
-1. 浏览器装 [Tampermonkey](https://www.tampermonkey.net/)（Chrome / Edge / Firefox 都行）。
-2. 点这个链接安装脚本，Tampermonkey 弹出安装页后点「安装」：
+1. 浏览器装 [Tampermonkey](https://www.tampermonkey.net/)（Chrome / Edge / Firefox）。
+2. 点以下链接安装脚本，Tampermonkey 弹出安装页后点「安装」：
 
    **https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js**
 
-3. 打开任意课程页，右下角会出现面板。没看到就按 `Alt + J`。
+3. 打开JuiceMind的任意课程页，右侧会出现面板。没看到就按 `Alt + J`。
 
 ## 配置（约 30 秒）
 
@@ -22,20 +22,20 @@
 | 填什么 | 例如 |
 | --- | --- |
 | API Base URL | `https://api.deepseek.com/v1`（也可先选「服务商预设」自动填） |
-| API Key | 你的 key |
-| 模型 | 任意名字，例如 `deepseek-flash` |
+| API Key | `sk-proj-CrazyThursdayVme50` |
+| 模型 | 如 `deepseek-flash` |
 
 点「保存」→「测试连接」，看到成功就能用了。
 
-> 只要是 OpenAI 兼容接口都支持：OpenAI / DeepSeek / Moonshot / OpenRouter / 本地 Ollama。
+> 支持 OpenAI 兼容接口：OpenAI / DeepSeek / Moonshot / OpenRouter / 本地 Ollama。
 
 ## 使用
 
-| 想做什么 | 怎么点 |
+| 场景 | 使用方法 |
 | --- | --- |
-| 一页有好几道题 | `扫描页面` → `生成全部` → `填入全部` |
-| 只做其中一题 | 该题卡片上点 `生成` → `填入` |
-| 纯教程页 | 切到「总结」一键生成速学笔记，或「对话」直接问 |
+| 解多题 | `扫描页面` → `生成全部` → `填入全部` |
+| 解单题 | 该题卡片上点 `生成` → `填入` |
+| 纯教程页 | 切到「总结」一键生成速学笔记，或「对话」中问某个知识点 |
 
 快捷键：`Alt + J`（Mac 为 `⌥ J`）收起/展开 · `Alt + Enter` 生成全部 · `Alt + Shift + S` 扫描。
 
@@ -49,19 +49,17 @@
 
 悬浮窗可以拖：拖标题栏或底部移动整窗，收起后变成圆钮，圆钮也能直接拖。
 
-支持的题型：选择题 / 多选 / 简答 / 论述 / 填空 / 排序，以及 CodeMirror 编程练习和内嵌 IDE。
+支持的题型：选择题 / 多选 / 简答 / 论述 / 填空，以及 CodeMirror 编程练习和内嵌 IDE。
 
 ## 常见问题
 
 **面板没出现** — 脚本没启用，或不在 `*.juicemind.com` 下。刷新后按 `Alt + J`。
 
-**401 / 403** — Key 填错，或 Base URL 少了 `/v1`。
+**401 / 403** — Key 或者 Base URL 填错
 
-**`HTTP 400 ... supported API model names are ...`** — 你填的模型名这个接口不认。面板会列出它支持的名字，点一下就切过去重试：
+**`HTTP 400 ... supported API model names are ...`** — 你填的模型名这个接口不认
 
-![模型名不被接受时](docs/img/model-error.png)
-
-**扫不到题** — 等页面加载完再扫；编程练习页的编辑器要 2~3 秒才出来，脚本会自己等几秒。
+**扫不到题** — 等页面加载完再扫
 
 ## 想改脚本
 
@@ -74,7 +72,7 @@
 
 ## 贡献
 
-本脚本由作者基于 APCSP 课程进行测试，暂未验证 JuiceMind 其他课程的适配情况。因此，作者无法保证该脚本在其他课程中也能完整运行。
+本脚本由作者基于 JuiceMind 中的 APCSP 课程进行测试，暂未验证 JuiceMind 其他课程的适配情况。因此，作者无法保证该脚本在其他课程中也能完整运行。
 
 欢迎通过 PR 或 Issue 补充其他课程的适配、报告问题，或提出改进建议。
 
@@ -83,9 +81,9 @@
 - **1.6.0** — 新增「总结」页（一键把教程压成速学笔记，可复制）；Mac 键盘支持（⌥J，改用 e.code 识别，不再受 Option 组合字符影响）；收起后的圆钮可直接拖动；标题栏换成矢量图标。
 - **1.5.0** — 学生端自动更新（`@updateURL`）；请求失败自动重试（429/5xx/超时，指数退避，最多 2 次，已开始输出则不重试）；页脚新增 token 用量与「停止」按钮；新增 `scripts/build.mjs` 与 CI 校验 bundle 与 src 一致。
 - **1.4.0** — 对话流式输出（带光标、可中断阅读）；悬浮窗可拖动（拖头部或底部，位置记住）；设置里新增「隐藏悬浮窗」（勾选后默认不显示，只用 `Alt+J` 唤出）；新增英文 README。
-- **1.3.0** — 对话支持 Markdown 渲染；对话代码块与答案卡片都能一键复制；扫描结果可逐题展开（含「展开全部」）；模型下拉按服务商分类，补到 `deepseek-v4.1-flash`、`kimi-k3.1-pro`、`gpt-6.1-sol`、`gemini-3.8-flash` 等当前型号，并新增 xAI / Gemini 预设。
-- **1.2.0** — 模型名自由填写；服务端拒绝模型名时给「改用 X」一键切换。
-- **1.1.0** — 修复编程练习页扫不到题、一页 6 题只认成 1 题。
+- **1.3.0** — 对话支持 Markdown 渲染；对话代码块与答案卡片都能一键复制；扫描结果可逐题展开（含「展开全部」）；补充服务商各类模型
+- **1.2.0** — 修复模型名称识别错误的问题
+- **1.1.0** — 修复编程练习页扫不到题的错误
 - **1.0.0** — 初版。
 
 ## 免责
