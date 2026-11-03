@@ -1,0 +1,27 @@
+﻿name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: bundle 与 src 一致
+        run: node scripts/build.mjs --check
+      - name: userscript 头部完整
+        run: |
+          head -n 12 juicemind-ai-assistant.user.js
+          grep -q "^// @version" juicemind-ai-assistant.user.js
+          grep -q "^// @updateURL" juicemind-ai-assistant.user.js
+          grep -q "^// @downloadURL" juicemind-ai-assistant.user.js
+          grep -q "^// ==/UserScript==" juicemind-ai-assistant.user.js
+      - name: src 语法可解析
+        run: node --check juicemind-ai-assistant.user.js
