@@ -1,0 +1,19 @@
+{
+  "name": "juicemind-auto",
+  "version": "1.6.0",
+  "description": "JuiceMind AI 答题助手（Tampermonkey userscript）的开发与测试脚手架",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check",
+    "test": "node test/run.js",
+    "test:ui": "node test/ui.js",
+    "shots": "node test/shot.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "puppeteer-core": "^25.16.0"
+  }
+}

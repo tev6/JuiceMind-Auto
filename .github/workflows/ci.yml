@@ -23,5 +23,9 @@ jobs:
           grep -q "^// @updateURL" juicemind-ai-assistant.user.js
           grep -q "^// @downloadURL" juicemind-ai-assistant.user.js
           grep -q "^// ==/UserScript==" juicemind-ai-assistant.user.js
-      - name: src 语法可解析
+      - name: 语法可解析
         run: node --check juicemind-ai-assistant.user.js
+      - name: 单元测试（jsdom）
+        run: |
+          npm ci --no-audit --no-fund
+          npm test

@@ -68,6 +68,8 @@ Supported question types: multiple choice / multi-select / short answer / essay 
 - How the site is scraped and written to: [notes/site-analysis.md](notes/site-analysis.md)
 - After editing `src/`, run `node scripts/build.mjs`; CI fails if the bundle and sources drift apart
 - Installs auto-update: the header carries `@updateURL`, so Tampermonkey pulls a new build whenever the version changes
+- Local tests: `npm i` then `npm test` (jsdom, 87 checks) and `npm run test:ui` (drag / hide / streaming, needs a local Chrome)
+- Real-site checks and screenshots: put item IDs in `test/items.local.json` (template: `test/items.example.json`; that file is gitignored), then run `node test/real.js` / `node test/shots-real.js`
 
 ## Contributing
 

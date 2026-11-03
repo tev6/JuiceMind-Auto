@@ -69,6 +69,8 @@
 - 站点怎么选元素、怎么写进编辑器：见 [notes/site-analysis.md](notes/site-analysis.md)
 - 改完 `src/` 后运行 `node scripts/build.mjs` 重新生成 bundle；CI 会校验两者是否一致
 - 学生端会自动升级：脚本头带 `@updateURL`，Tampermonkey 每次检查到版本号变化就拉新版
+- 本地测试：`npm i` → `npm test`（jsdom 87 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式，需要本机 Chrome）
+- 真实页验收与截图：把条目 ID 填进 `test/items.local.json`（模板 `test/items.example.json`，该文件不进仓库），再跑 `node test/real.js` / `node test/shots-real.js`
 
 ## 贡献
 

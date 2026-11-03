@@ -1,7 +1,8 @@
 node_modules/
 .chrome-profile/
-test/
-package.json
-package-lock.json
+test/items.local.json
+test/shots/
+test/*.log
+test/*.err
 .DS_Store
 Thumbs.db
