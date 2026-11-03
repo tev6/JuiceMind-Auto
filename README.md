@@ -22,7 +22,7 @@
 | 填什么 | 例如 |
 | --- | --- |
 | API Base URL | `https://api.deepseek.com/v1`（也可先选「服务商预设」自动填） |
-| API Key | `sk-proj-CrazyThursdayVme50` |
+| API Key | `sk-...`（你自己的 key） |
 | 模型 | 如 `deepseek-flash` |
 
 点「保存」→「测试连接」，看到成功就能用了。
