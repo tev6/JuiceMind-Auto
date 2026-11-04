@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.9.0
+// @version      1.9.1
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.9.0';
+  const VERSION = '1.9.1';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -223,6 +223,7 @@
     stream: true, // 对话页流式输出
     anim: true, // 界面动画（关闭后所有过渡/动画停用）
     humanType: true, // 代码题拟人写入：逐字敲、随机节奏、偶发退格与光标移动
+    typingWpm: 75, // 拟人写入的平均速度（WPM，15~120）
     debug: false,
     systemPrompt: '', // 自定义追加提示词
     contextChars: 6000, // 送给模型的页面上下文上限
@@ -1861,6 +1862,37 @@
       return e;
     },
 
+    /** 目标平均速度（WPM，1 词按 5 字符算）→ 每字符毫秒数 */
+    charMs() {
+      const wpm = Math.min(120, Math.max(15, Number(Store.get('typingWpm')) || 75));
+      return 12000 / wpm;
+    },
+
+    /** 规划整段文字怎么敲：决定每步是什么、间隔多少 */
+    plan(text) {
+      const steps = [];
+      let i = 0;
+      while (i < text.length) {
+        const size = this.rnd() < 0.82 ? 1 : 2;
+        const chunk = text.slice(i, i + size);
+        i += chunk.length;
+
+        // 偶发打错 + 退格
+        if (chunk.length === 1 && /[a-zA-Z0-9(),.:;=()\[\]"'\-]/.test(chunk) && this.rnd() < 0.05) {
+          steps.push({ kind: 'typo', wrong: this.typoFor(chunk), delay: this.rand(90, 240), undo: this.rand(50, 150) });
+        }
+
+        const isIndent = text.slice(0, i).endsWith('\n') && text[i] === ' ';
+        steps.push({ kind: 'type', text: chunk, delay: this.delayFor(chunk[chunk.length - 1], isIndent) });
+
+        // 偶发回头看一眼
+        if (i > 20 && this.rnd() < 0.02) {
+          steps.push({ kind: 'glance', back: Math.round(this.rand(8, Math.min(48, i))), delay: this.rand(140, 300), hold: this.rand(200, 560) });
+        }
+      }
+      return steps;
+    },
+
     /** 往 CodeMirror 6 里手打 */
     async typeIntoCm(view, text) {
       const token = this.begin();
@@ -1873,41 +1905,33 @@
         if (!this.alive(token)) throw this.abort();
       }
 
-      let i = 0;
-      while (i < text.length) {
+      const steps = this.plan(text);
+      // 归一化：让「字符数 / 总耗时」贴近目标 WPM（停顿也算在内）
+      const nominal = steps.reduce((sum, st) => sum + (st.delay || 0) + (st.undo || 0) + (st.hold || 0), 0);
+      const target = text.length * this.charMs();
+      const factor = Math.min(4, Math.max(0.12, target / Math.max(1, nominal)));
+
+      for (const st of steps) {
         if (!this.alive(token)) throw this.abort();
 
-        // 大多一次敲一个字，偶尔两个字（很快连击）
-        const size = this.rnd() < 0.82 ? 1 : 2;
-        const chunk = text.slice(i, i + size);
-        i += chunk.length;
-
-        // 偶发：打错一个键，停顿，退格
-        if (chunk.length === 1 && /[a-zA-Z0-9(),.:=:;\[\]"'\-]/.test(chunk) && this.rnd() < 0.05) {
-          const wrong = this.typoFor(chunk);
+        if (st.kind === 'typo') {
           const at = docLen();
-          view.dispatch({ changes: { from: at, insert: wrong }, selection: { anchor: at + wrong.length } });
-          await this.wait(this.rand(90, 240));
+          view.dispatch({ changes: { from: at, insert: st.wrong }, selection: { anchor: at + st.wrong.length } });
+          await this.wait(st.delay * factor);
           if (!this.alive(token)) throw this.abort();
-          view.dispatch({ changes: { from: at, to: at + wrong.length }, selection: { anchor: at } });
-          await this.wait(this.rand(50, 150));
-        }
-
-        const from = docLen();
-        view.dispatch({ changes: { from, insert: chunk }, selection: { anchor: from + chunk.length } });
-
-        // 偶发：回头看一眼（只动光标，不改内容）
-        if (from > 20 && this.rnd() < 0.02) {
-          await this.wait(this.rand(140, 300));
-          const back = Math.max(0, from - Math.round(this.rand(8, Math.min(48, from))));
+          view.dispatch({ changes: { from: at, to: at + st.wrong.length }, selection: { anchor: at } });
+          await this.wait(st.undo * factor);
+        } else if (st.kind === 'glance') {
+          const back = Math.max(0, docLen() - st.back);
           view.dispatch({ selection: { anchor: back } });
-          await this.wait(this.rand(200, 560));
+          await this.wait(Math.max(st.delay, st.hold) * factor);
           if (!this.alive(token)) throw this.abort();
           view.dispatch({ selection: { anchor: docLen() } });
+        } else {
+          const from = docLen();
+          view.dispatch({ changes: { from, insert: st.text }, selection: { anchor: from + st.text.length } });
+          await this.wait(st.delay * factor);
         }
-
-        const isIndent = text.slice(0, i).endsWith('\n') && text[i] === ' ';
-        await this.wait(this.delayFor(chunk[chunk.length - 1], isIndent));
       }
       return true;
     },
@@ -1921,18 +1945,45 @@
         return true;
       }
       inst.setValue('');
-      let i = 0;
-      while (i < text.length) {
+      const steps = this.plan(text);
+      const nominal = steps.reduce((sum, st) => sum + (st.delay || 0) + (st.undo || 0) + (st.hold || 0), 0);
+      const target = text.length * this.charMs();
+      const factor = Math.min(4, Math.max(0.12, target / Math.max(1, nominal)));
+
+      const insertAtEnd = (chunk) => {
+        const mdl = inst.getModel();
+        const end = mdl.getFullModelRange().getEndPosition();
+        inst.executeEdits('typed', [
+          {
+            range: { startLineNumber: end.lineNumber, startColumn: end.column, endLineNumber: end.lineNumber, endColumn: end.column },
+            text: chunk,
+            forceMoveMarkers: true,
+          },
+        ]);
+      };
+
+      for (const st of steps) {
         if (!this.alive(token)) throw this.abort();
-        const size = this.rnd() < 0.82 ? 1 : 2;
-        const chunk = text.slice(i, i + size);
-        i += chunk.length;
-        const model2 = inst.getModel();
-        const end = model2.getFullModelRange().getEndPosition();
-        inst.executeEdits('typed', [{ range: { startLineNumber: end.lineNumber, startColumn: end.column, endLineNumber: end.lineNumber, endColumn: end.column }, text: chunk, forceMoveMarkers: true }]);
-        inst.revealPositionInCenterIfOutsideViewport && inst.revealPositionInCenterIfOutsideViewport(end);
-        const isIndent = text.slice(0, i).endsWith('\n') && text[i] === ' ';
-        await this.wait(this.delayFor(chunk[chunk.length - 1], isIndent));
+        if (st.kind === 'type') {
+          insertAtEnd(st.text);
+          await this.wait(st.delay * factor);
+        } else if (st.kind === 'typo') {
+          insertAtEnd(st.wrong);
+          await this.wait(st.delay * factor);
+          if (!this.alive(token)) throw this.abort();
+          const mdl = inst.getModel();
+          const end = mdl.getFullModelRange().getEndPosition();
+          const col = Math.max(1, end.column - st.wrong.length);
+          inst.executeEdits('typed', [
+            {
+              range: { startLineNumber: end.lineNumber, startColumn: col, endLineNumber: end.lineNumber, endColumn: end.column },
+              text: '',
+            },
+          ]);
+          await this.wait(st.undo * factor);
+        } else {
+          await this.wait(Math.max(st.delay, st.hold) * factor);
+        }
       }
       return true;
     },
@@ -2778,6 +2829,9 @@
 
 /* 折叠 / 展开 */
 .chev { margin-left: 2px; }
+.q-hd.clickable { cursor: pointer; border-radius: 8px; margin: -2px -4px 0; padding: 2px 4px; transition: background .14s ease; }
+.q-hd.clickable:hover { background: var(--jm-chip); }
+.q-hd.clickable:focus-visible { outline: 2px solid var(--jm-primary); outline-offset: 1px; }
 .q.expanded { border-color: var(--jm-primary-border); box-shadow: 0 3px 12px -8px var(--jm-shadow); }
 .q:not(.expanded) .q-prompt { -webkit-line-clamp: 2; }
 .q-prompt { -webkit-line-clamp: 3; }
@@ -2920,6 +2974,12 @@ details.adv[open] > summary::before { transform: rotate(90deg); }
 details.adv[open] > summary { color: var(--jm-primary); }
 details.adv .adv-body { padding-top: 6px; }
 .field.check.sub { display: block; margin-left: 16px; margin-bottom: 9px; }
+.range-field input[type="range"] {
+  width: 100%; margin: 4px 0 2px; accent-color: var(--jm-primary); cursor: pointer;
+}
+.range-field.disabled { opacity: .45; }
+.range-field.disabled input { cursor: not-allowed; }
+.wpm-val { color: var(--jm-primary); font-weight: 700; font-variant-numeric: tabular-nums; }
 .check.sub label { display: block; margin: 2px 0 4px; }
 .check.sub select { width: 100%; }
 .check.sub.disabled { opacity: .45; }
@@ -3728,6 +3788,22 @@ details.adv .adv-body { padding-top: 6px; }
       });
       hd.appendChild(chev);
 
+      // 整个顶部区域都能点开/收起（按钮、链接除外）
+      hd.classList.add('clickable');
+      hd.setAttribute('role', 'button');
+      hd.tabIndex = 0;
+      const toggleFromHead = (e) => {
+        if (e && e.target && e.target.closest('button, a, input, textarea, select')) return;
+        this.toggleExpand(q, card, chev);
+      };
+      hd.addEventListener('click', toggleFromHead);
+      hd.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.toggleExpand(q, card, chev);
+        }
+      });
+
       const prompt = document.createElement('div');
       prompt.className = 'q-prompt';
       prompt.textContent = q.prompt || L('（未识别到题干）', '(no prompt found)');
@@ -4011,6 +4087,11 @@ details.adv .adv-body { padding-top: 6px; }
         <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> ${L('隐藏悬浮窗（只用 Alt+J 唤出）', 'Hide panel (Alt+J only)')}</label>
         <label class="check"><input type="checkbox" data-k="anim" ${cfg.anim !== false ? 'checked' : ''}/> ${L('界面动画（关闭后所有过渡停用）', 'UI animations (turn off for instant switches)')}</label>
         <label class="check"><input type="checkbox" data-k="humanType" ${cfg.humanType !== false ? 'checked' : ''}/> ${L('代码题拟人写入（逐字敲、随机节奏、偶发退格）', 'Human-like code typing (char by char, random pace)')}</label>
+        <div class="field range-field ${cfg.humanType === false ? 'disabled' : ''}" data-ref="wpm-field">
+          <label>${L('平均打字速度', 'Average typing speed')} <span class="wpm-val" data-ref="wpm-val">${Number(cfg.typingWpm) || 75}</span> WPM</label>
+          <input type="range" min="15" max="120" step="5" data-k="typingWpm" value="${Number(cfg.typingWpm) || 75}" />
+          <div class="hint" style="margin:2px 0 0">${L('15 = 很慢（边想边敲），120 = 很快；平均速度会贴近这个值。', '15 = very slow, 120 = very fast; the average pace tracks this value.')}</div>
+        </div>
 
         <details class="adv">
           <summary>${L('高级设置', 'Advanced')}</summary>
@@ -4067,6 +4148,21 @@ details.adv .adv-body { padding-top: 6px; }
       const custom = box.querySelector('[data-k="outputLangCustom"]');
       const sel = box.querySelector('[data-k="outputLang"]');
       const field = box.querySelector('[data-ref="outlang-field"]');
+      const wpmRange = box.querySelector('[data-k="typingWpm"]');
+      const wpmVal = box.querySelector('[data-ref="wpm-val"]');
+      if (wpmRange) {
+        wpmRange.addEventListener('input', () => {
+          if (wpmVal) wpmVal.textContent = wpmRange.value;
+        });
+      }
+      const humanCheck = box.querySelector('[data-k="humanType"]');
+      const wpmField = box.querySelector('[data-ref="wpm-field"]');
+      if (humanCheck && wpmField) {
+        humanCheck.addEventListener('change', () => {
+          wpmField.classList.toggle('disabled', !humanCheck.checked);
+          if (wpmRange) wpmRange.disabled = !humanCheck.checked;
+        });
+      }
       custom.addEventListener('change', () => {
         sel.disabled = !custom.checked;
         if (field) field.classList.toggle('disabled', !custom.checked);
@@ -4140,6 +4236,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('hidePanel', read('hidePanel'));
       put('anim', read('anim'));
       put('humanType', read('humanType'));
+      put('typingWpm', Number(read('typingWpm')) || 75);
       put('debug', read('debug'));
       put('systemPrompt', read('systemPrompt'));
       Store.set(patch);

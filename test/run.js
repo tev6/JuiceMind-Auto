@@ -481,6 +481,61 @@ const doc = window.document;
   HT.speed = 1;
   HT.rnd = Math.random;
 
+
+  console.log('\n【21】打字速度（WPM）与卡片顶部点击');
+  const speedCases = [
+    [120, 100],
+    [75, 160],
+    [15, 800],
+  ];
+  for (const [wpm, expectMs] of speedCases) {
+    J.Store.set({ typingWpm: wpm });
+    ok(`${wpm} WPM → 每字符 ${expectMs}ms`, Math.abs(HT.charMs() - expectMs) < 1, HT.charMs());
+  }
+  J.Store.set({ typingWpm: 90 });
+  ok('超出范围会被夹住', (function () {
+    J.Store.set({ typingWpm: 400 });
+    const v = HT.charMs();
+    J.Store.set({ typingWpm: 90 });
+    return Math.abs(v - 100) < 1;
+  })());
+
+  // 真计时：15 个字符 @ 90 WPM ≈ 15 * 133ms ≈ 2s
+  const vTimed = makeView('');
+  HT.speed = 1;
+  HT.rnd = Math.random;
+  const t0 = Date.now();
+  await HT.typeIntoCm(vTimed, 'abcdefghijklmnop');
+  const elapsed = Date.now() - t0;
+  const target = 16 * HT.charMs();
+  ok('平均速度贴近目标（±45%）', Math.abs(elapsed - target) / target < 0.45, { elapsed, target: Math.round(target) });
+
+  // 卡片顶部区域可点击
+  J.Store.set({ apiKey: 'sk-test', model: 'm', baseUrl: 'https://api.openai.com/v1' });
+  window.fetch = async () =>
+    new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ type: 'mcq', answers: ['A'], explanation: '' }) } }] }), { status: 200 });
+  await J.Actions.scan();
+  const cards = host.shadowRoot.querySelectorAll('.q');
+  ok('有卡片可测试', cards.length > 0, cards.length);
+  if (cards.length) {
+    const card = cards[0];
+    const head = card.querySelector('.q-hd');
+    ok('顶部区域标记为可点击', head.classList.contains('clickable') && head.getAttribute('role') === 'button');
+    const qid = card.getAttribute('data-qid');
+    const readExpanded = () => {
+      const el = host.shadowRoot.querySelector('[data-qid="' + qid + '"]');
+      return el ? el.classList.contains('expanded') : null;
+    };
+    const before = readExpanded();
+    card.querySelector('.q-hd').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    const after = readExpanded();
+    ok('点顶部区域能展开/收起', before !== after && after !== null, { before, after });
+    // 再点回来
+    const card2 = host.shadowRoot.querySelector('[data-qid="' + qid + '"]');
+    card2.querySelector('.q-hd').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    ok('再点一次收起', readExpanded() === before, { again: readExpanded(), before });
+  }
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {

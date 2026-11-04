@@ -78,6 +78,37 @@
       return e;
     },
 
+    /** 目标平均速度（WPM，1 词按 5 字符算）→ 每字符毫秒数 */
+    charMs() {
+      const wpm = Math.min(120, Math.max(15, Number(Store.get('typingWpm')) || 75));
+      return 12000 / wpm;
+    },
+
+    /** 规划整段文字怎么敲：决定每步是什么、间隔多少 */
+    plan(text) {
+      const steps = [];
+      let i = 0;
+      while (i < text.length) {
+        const size = this.rnd() < 0.82 ? 1 : 2;
+        const chunk = text.slice(i, i + size);
+        i += chunk.length;
+
+        // 偶发打错 + 退格
+        if (chunk.length === 1 && /[a-zA-Z0-9(),.:;=()\[\]"'\-]/.test(chunk) && this.rnd() < 0.05) {
+          steps.push({ kind: 'typo', wrong: this.typoFor(chunk), delay: this.rand(90, 240), undo: this.rand(50, 150) });
+        }
+
+        const isIndent = text.slice(0, i).endsWith('\n') && text[i] === ' ';
+        steps.push({ kind: 'type', text: chunk, delay: this.delayFor(chunk[chunk.length - 1], isIndent) });
+
+        // 偶发回头看一眼
+        if (i > 20 && this.rnd() < 0.02) {
+          steps.push({ kind: 'glance', back: Math.round(this.rand(8, Math.min(48, i))), delay: this.rand(140, 300), hold: this.rand(200, 560) });
+        }
+      }
+      return steps;
+    },
+
     /** 往 CodeMirror 6 里手打 */
     async typeIntoCm(view, text) {
       const token = this.begin();
@@ -90,41 +121,33 @@
         if (!this.alive(token)) throw this.abort();
       }
 
-      let i = 0;
-      while (i < text.length) {
+      const steps = this.plan(text);
+      // 归一化：让「字符数 / 总耗时」贴近目标 WPM（停顿也算在内）
+      const nominal = steps.reduce((sum, st) => sum + (st.delay || 0) + (st.undo || 0) + (st.hold || 0), 0);
+      const target = text.length * this.charMs();
+      const factor = Math.min(4, Math.max(0.12, target / Math.max(1, nominal)));
+
+      for (const st of steps) {
         if (!this.alive(token)) throw this.abort();
 
-        // 大多一次敲一个字，偶尔两个字（很快连击）
-        const size = this.rnd() < 0.82 ? 1 : 2;
-        const chunk = text.slice(i, i + size);
-        i += chunk.length;
-
-        // 偶发：打错一个键，停顿，退格
-        if (chunk.length === 1 && /[a-zA-Z0-9(),.:=:;\[\]"'\-]/.test(chunk) && this.rnd() < 0.05) {
-          const wrong = this.typoFor(chunk);
+        if (st.kind === 'typo') {
           const at = docLen();
-          view.dispatch({ changes: { from: at, insert: wrong }, selection: { anchor: at + wrong.length } });
-          await this.wait(this.rand(90, 240));
+          view.dispatch({ changes: { from: at, insert: st.wrong }, selection: { anchor: at + st.wrong.length } });
+          await this.wait(st.delay * factor);
           if (!this.alive(token)) throw this.abort();
-          view.dispatch({ changes: { from: at, to: at + wrong.length }, selection: { anchor: at } });
-          await this.wait(this.rand(50, 150));
-        }
-
-        const from = docLen();
-        view.dispatch({ changes: { from, insert: chunk }, selection: { anchor: from + chunk.length } });
-
-        // 偶发：回头看一眼（只动光标，不改内容）
-        if (from > 20 && this.rnd() < 0.02) {
-          await this.wait(this.rand(140, 300));
-          const back = Math.max(0, from - Math.round(this.rand(8, Math.min(48, from))));
+          view.dispatch({ changes: { from: at, to: at + st.wrong.length }, selection: { anchor: at } });
+          await this.wait(st.undo * factor);
+        } else if (st.kind === 'glance') {
+          const back = Math.max(0, docLen() - st.back);
           view.dispatch({ selection: { anchor: back } });
-          await this.wait(this.rand(200, 560));
+          await this.wait(Math.max(st.delay, st.hold) * factor);
           if (!this.alive(token)) throw this.abort();
           view.dispatch({ selection: { anchor: docLen() } });
+        } else {
+          const from = docLen();
+          view.dispatch({ changes: { from, insert: st.text }, selection: { anchor: from + st.text.length } });
+          await this.wait(st.delay * factor);
         }
-
-        const isIndent = text.slice(0, i).endsWith('\n') && text[i] === ' ';
-        await this.wait(this.delayFor(chunk[chunk.length - 1], isIndent));
       }
       return true;
     },
@@ -138,18 +161,45 @@
         return true;
       }
       inst.setValue('');
-      let i = 0;
-      while (i < text.length) {
+      const steps = this.plan(text);
+      const nominal = steps.reduce((sum, st) => sum + (st.delay || 0) + (st.undo || 0) + (st.hold || 0), 0);
+      const target = text.length * this.charMs();
+      const factor = Math.min(4, Math.max(0.12, target / Math.max(1, nominal)));
+
+      const insertAtEnd = (chunk) => {
+        const mdl = inst.getModel();
+        const end = mdl.getFullModelRange().getEndPosition();
+        inst.executeEdits('typed', [
+          {
+            range: { startLineNumber: end.lineNumber, startColumn: end.column, endLineNumber: end.lineNumber, endColumn: end.column },
+            text: chunk,
+            forceMoveMarkers: true,
+          },
+        ]);
+      };
+
+      for (const st of steps) {
         if (!this.alive(token)) throw this.abort();
-        const size = this.rnd() < 0.82 ? 1 : 2;
-        const chunk = text.slice(i, i + size);
-        i += chunk.length;
-        const model2 = inst.getModel();
-        const end = model2.getFullModelRange().getEndPosition();
-        inst.executeEdits('typed', [{ range: { startLineNumber: end.lineNumber, startColumn: end.column, endLineNumber: end.lineNumber, endColumn: end.column }, text: chunk, forceMoveMarkers: true }]);
-        inst.revealPositionInCenterIfOutsideViewport && inst.revealPositionInCenterIfOutsideViewport(end);
-        const isIndent = text.slice(0, i).endsWith('\n') && text[i] === ' ';
-        await this.wait(this.delayFor(chunk[chunk.length - 1], isIndent));
+        if (st.kind === 'type') {
+          insertAtEnd(st.text);
+          await this.wait(st.delay * factor);
+        } else if (st.kind === 'typo') {
+          insertAtEnd(st.wrong);
+          await this.wait(st.delay * factor);
+          if (!this.alive(token)) throw this.abort();
+          const mdl = inst.getModel();
+          const end = mdl.getFullModelRange().getEndPosition();
+          const col = Math.max(1, end.column - st.wrong.length);
+          inst.executeEdits('typed', [
+            {
+              range: { startLineNumber: end.lineNumber, startColumn: col, endLineNumber: end.lineNumber, endColumn: end.column },
+              text: '',
+            },
+          ]);
+          await this.wait(st.undo * factor);
+        } else {
+          await this.wait(Math.max(st.delay, st.hold) * factor);
+        }
       }
       return true;
     },

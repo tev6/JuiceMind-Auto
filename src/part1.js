@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.9.0
+// @version      1.9.1
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.9.0';
+  const VERSION = '1.9.1';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -223,6 +223,7 @@
     stream: true, // 对话页流式输出
     anim: true, // 界面动画（关闭后所有过渡/动画停用）
     humanType: true, // 代码题拟人写入：逐字敲、随机节奏、偶发退格与光标移动
+    typingWpm: 75, // 拟人写入的平均速度（WPM，15~120）
     debug: false,
     systemPrompt: '', // 自定义追加提示词
     contextChars: 6000, // 送给模型的页面上下文上限

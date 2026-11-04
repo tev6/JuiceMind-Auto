@@ -214,6 +214,9 @@
 
 /* 折叠 / 展开 */
 .chev { margin-left: 2px; }
+.q-hd.clickable { cursor: pointer; border-radius: 8px; margin: -2px -4px 0; padding: 2px 4px; transition: background .14s ease; }
+.q-hd.clickable:hover { background: var(--jm-chip); }
+.q-hd.clickable:focus-visible { outline: 2px solid var(--jm-primary); outline-offset: 1px; }
 .q.expanded { border-color: var(--jm-primary-border); box-shadow: 0 3px 12px -8px var(--jm-shadow); }
 .q:not(.expanded) .q-prompt { -webkit-line-clamp: 2; }
 .q-prompt { -webkit-line-clamp: 3; }
@@ -356,6 +359,12 @@ details.adv[open] > summary::before { transform: rotate(90deg); }
 details.adv[open] > summary { color: var(--jm-primary); }
 details.adv .adv-body { padding-top: 6px; }
 .field.check.sub { display: block; margin-left: 16px; margin-bottom: 9px; }
+.range-field input[type="range"] {
+  width: 100%; margin: 4px 0 2px; accent-color: var(--jm-primary); cursor: pointer;
+}
+.range-field.disabled { opacity: .45; }
+.range-field.disabled input { cursor: not-allowed; }
+.wpm-val { color: var(--jm-primary); font-weight: 700; font-variant-numeric: tabular-nums; }
 .check.sub label { display: block; margin: 2px 0 4px; }
 .check.sub select { width: 100%; }
 .check.sub.disabled { opacity: .45; }
@@ -1164,6 +1173,22 @@ details.adv .adv-body { padding-top: 6px; }
       });
       hd.appendChild(chev);
 
+      // 整个顶部区域都能点开/收起（按钮、链接除外）
+      hd.classList.add('clickable');
+      hd.setAttribute('role', 'button');
+      hd.tabIndex = 0;
+      const toggleFromHead = (e) => {
+        if (e && e.target && e.target.closest('button, a, input, textarea, select')) return;
+        this.toggleExpand(q, card, chev);
+      };
+      hd.addEventListener('click', toggleFromHead);
+      hd.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          this.toggleExpand(q, card, chev);
+        }
+      });
+
       const prompt = document.createElement('div');
       prompt.className = 'q-prompt';
       prompt.textContent = q.prompt || L('（未识别到题干）', '(no prompt found)');
@@ -1447,6 +1472,11 @@ details.adv .adv-body { padding-top: 6px; }
         <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> ${L('隐藏悬浮窗（只用 Alt+J 唤出）', 'Hide panel (Alt+J only)')}</label>
         <label class="check"><input type="checkbox" data-k="anim" ${cfg.anim !== false ? 'checked' : ''}/> ${L('界面动画（关闭后所有过渡停用）', 'UI animations (turn off for instant switches)')}</label>
         <label class="check"><input type="checkbox" data-k="humanType" ${cfg.humanType !== false ? 'checked' : ''}/> ${L('代码题拟人写入（逐字敲、随机节奏、偶发退格）', 'Human-like code typing (char by char, random pace)')}</label>
+        <div class="field range-field ${cfg.humanType === false ? 'disabled' : ''}" data-ref="wpm-field">
+          <label>${L('平均打字速度', 'Average typing speed')} <span class="wpm-val" data-ref="wpm-val">${Number(cfg.typingWpm) || 75}</span> WPM</label>
+          <input type="range" min="15" max="120" step="5" data-k="typingWpm" value="${Number(cfg.typingWpm) || 75}" />
+          <div class="hint" style="margin:2px 0 0">${L('15 = 很慢（边想边敲），120 = 很快；平均速度会贴近这个值。', '15 = very slow, 120 = very fast; the average pace tracks this value.')}</div>
+        </div>
 
         <details class="adv">
           <summary>${L('高级设置', 'Advanced')}</summary>
@@ -1503,6 +1533,21 @@ details.adv .adv-body { padding-top: 6px; }
       const custom = box.querySelector('[data-k="outputLangCustom"]');
       const sel = box.querySelector('[data-k="outputLang"]');
       const field = box.querySelector('[data-ref="outlang-field"]');
+      const wpmRange = box.querySelector('[data-k="typingWpm"]');
+      const wpmVal = box.querySelector('[data-ref="wpm-val"]');
+      if (wpmRange) {
+        wpmRange.addEventListener('input', () => {
+          if (wpmVal) wpmVal.textContent = wpmRange.value;
+        });
+      }
+      const humanCheck = box.querySelector('[data-k="humanType"]');
+      const wpmField = box.querySelector('[data-ref="wpm-field"]');
+      if (humanCheck && wpmField) {
+        humanCheck.addEventListener('change', () => {
+          wpmField.classList.toggle('disabled', !humanCheck.checked);
+          if (wpmRange) wpmRange.disabled = !humanCheck.checked;
+        });
+      }
       custom.addEventListener('change', () => {
         sel.disabled = !custom.checked;
         if (field) field.classList.toggle('disabled', !custom.checked);
@@ -1576,6 +1621,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('hidePanel', read('hidePanel'));
       put('anim', read('anim'));
       put('humanType', read('humanType'));
+      put('typingWpm', Number(read('typingWpm')) || 75);
       put('debug', read('debug'));
       put('systemPrompt', read('systemPrompt'));
       Store.set(patch);
