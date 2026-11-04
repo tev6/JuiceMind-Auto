@@ -70,6 +70,7 @@
     /** 用户点「停止」：中断当前请求，保留已生成的内容 */
     stop() {
       const wasBusy = App.busy;
+      HumanTyping.cancel();
       LLM.abort();
       App.busy = false;
       this.setBusy(false);
@@ -507,7 +508,7 @@
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
+        W.__JMAI__ = { UI, Actions, PageModel, Solvers, HumanTyping, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
       } catch (e) {
         /* ignore */
       }

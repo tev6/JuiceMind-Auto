@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.8.1
+// @version      1.9.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.8.1';
+  const VERSION = '1.9.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -222,6 +222,7 @@
     hidePanel: false, // 默认不显示悬浮窗，只用 Alt+J 唤出
     stream: true, // 对话页流式输出
     anim: true, // 界面动画（关闭后所有过渡/动画停用）
+    humanType: true, // 代码题拟人写入：逐字敲、随机节奏、偶发退格与光标移动
     debug: false,
     systemPrompt: '', // 自定义追加提示词
     contextChars: 6000, // 送给模型的页面上下文上限
@@ -1797,6 +1798,146 @@
 - parsons：数字数组，表示给出的代码行按正确顺序排列的行号（从 0 开始，用尽所有行）
 - blank：字符串数组，按空位从左到右`;
 
+  /* ============================ 6.5 拟人化输入 ============================ */
+  /**
+   * 把整篇代码「敲」进编辑器：随机节奏、偶尔打错再退格、偶尔回头看一眼前面的行。
+   * 目的不是伪装成某一个具体的人，而是让协同操作流里出现多次小增量，
+   * 而不是一条「整篇替换」。
+   */
+  const HumanTyping = {
+    token: 0,
+    speed: 1, // 1 = 正常；测试里设 0 把等待压掉
+    rnd: Math.random,
+
+    cancel() {
+      this.token++;
+    },
+
+    begin() {
+      this.token++;
+      return this.token;
+    },
+
+    alive(token) {
+      return token === this.token;
+    },
+
+    rand(a, b) {
+      return a + (b - a) * this.rnd();
+    },
+
+    async wait(ms) {
+      const t = Math.round(ms * this.speed);
+      if (t > 0) await new Promise((r) => setTimeout(r, t));
+    },
+
+    /** 单字符的「思考时间」：换行、右括号之后会慢一点，缩进快一点 */
+    delayFor(ch, indent) {
+      let ms = this.rand(52, 128);
+      if (ch === '\n') ms += this.rand(140, 420);
+      else if (/[)\]}:]/.test(ch)) ms += this.rand(50, 190);
+      else if (/[,(=]/.test(ch)) ms += this.rand(25, 110);
+      if (indent) ms = this.rand(28, 68);
+      if (this.rnd() < 0.035) ms += this.rand(320, 900); // 偶尔停下来想
+      return ms;
+    },
+
+    /** 打错时最可能按到的键 */
+    typoFor(ch) {
+      const near = {
+        a: 's', s: 'a', d: 's', f: 'd', g: 'f', h: 'g', j: 'h', k: 'j', l: 'k',
+        e: 'r', r: 'e', t: 'r', y: 't', u: 'y', i: 'u', o: 'i', p: 'o',
+        q: 'w', w: 'q', z: 'x', x: 'z', c: 'x', v: 'c', b: 'v', n: 'b', m: 'n',
+        0: '9', 1: '2', 2: '3', 3: '4', 9: '0',
+        '(': ')', ')': '(', '[': ']', ']': '[', '"': "'", "'": '"',
+        '=': '-', '-': '=', '.': ',', ',': '.', ':': ';', ';': ':',
+      };
+      return near[ch] || String.fromCharCode(ch.charCodeAt(0) + 1);
+    },
+
+    abort() {
+      const e = new Error('已取消');
+      e.name = 'AbortError';
+      return e;
+    },
+
+    /** 往 CodeMirror 6 里手打 */
+    async typeIntoCm(view, text) {
+      const token = this.begin();
+      const docLen = () => view.state.doc.length;
+
+      // 覆盖已有内容：真人也是先全选删掉
+      if (docLen()) {
+        view.dispatch({ changes: { from: 0, to: docLen() }, selection: { anchor: 0 } });
+        await this.wait(this.rand(120, 320));
+        if (!this.alive(token)) throw this.abort();
+      }
+
+      let i = 0;
+      while (i < text.length) {
+        if (!this.alive(token)) throw this.abort();
+
+        // 大多一次敲一个字，偶尔两个字（很快连击）
+        const size = this.rnd() < 0.82 ? 1 : 2;
+        const chunk = text.slice(i, i + size);
+        i += chunk.length;
+
+        // 偶发：打错一个键，停顿，退格
+        if (chunk.length === 1 && /[a-zA-Z0-9(),.:=:;\[\]"'\-]/.test(chunk) && this.rnd() < 0.05) {
+          const wrong = this.typoFor(chunk);
+          const at = docLen();
+          view.dispatch({ changes: { from: at, insert: wrong }, selection: { anchor: at + wrong.length } });
+          await this.wait(this.rand(90, 240));
+          if (!this.alive(token)) throw this.abort();
+          view.dispatch({ changes: { from: at, to: at + wrong.length }, selection: { anchor: at } });
+          await this.wait(this.rand(50, 150));
+        }
+
+        const from = docLen();
+        view.dispatch({ changes: { from, insert: chunk }, selection: { anchor: from + chunk.length } });
+
+        // 偶发：回头看一眼（只动光标，不改内容）
+        if (from > 20 && this.rnd() < 0.02) {
+          await this.wait(this.rand(140, 300));
+          const back = Math.max(0, from - Math.round(this.rand(8, Math.min(48, from))));
+          view.dispatch({ selection: { anchor: back } });
+          await this.wait(this.rand(200, 560));
+          if (!this.alive(token)) throw this.abort();
+          view.dispatch({ selection: { anchor: docLen() } });
+        }
+
+        const isIndent = text.slice(0, i).endsWith('\n') && text[i] === ' ';
+        await this.wait(this.delayFor(chunk[chunk.length - 1], isIndent));
+      }
+      return true;
+    },
+
+    /** 往 Monaco 里手打（有 executeEdits 就用它，逐块应用） */
+    async typeIntoMonaco(inst, text) {
+      const token = this.begin();
+      const model = inst.getModel && inst.getModel();
+      if (!model || typeof inst.executeEdits !== 'function') {
+        inst.setValue(text);
+        return true;
+      }
+      inst.setValue('');
+      let i = 0;
+      while (i < text.length) {
+        if (!this.alive(token)) throw this.abort();
+        const size = this.rnd() < 0.82 ? 1 : 2;
+        const chunk = text.slice(i, i + size);
+        i += chunk.length;
+        const model2 = inst.getModel();
+        const end = model2.getFullModelRange().getEndPosition();
+        inst.executeEdits('typed', [{ range: { startLineNumber: end.lineNumber, startColumn: end.column, endLineNumber: end.lineNumber, endColumn: end.column }, text: chunk, forceMoveMarkers: true }]);
+        inst.revealPositionInCenterIfOutsideViewport && inst.revealPositionInCenterIfOutsideViewport(end);
+        const isIndent = text.slice(0, i).endsWith('\n') && text[i] === ' ';
+        await this.wait(this.delayFor(chunk[chunk.length - 1], isIndent));
+      }
+      return true;
+    },
+  };
+
   const Solvers = {
     answers: new Map(), // key -> {answer, at}
 
@@ -2071,17 +2212,28 @@
       return ed.el.value || '';
     },
 
-    setCode(q, code) {
+    async setCode(q, code) {
       const ed = q.editor;
       if (!ed) return false;
       if (ed.kind === 'monaco') {
         const inst = this.findMonacoEditor(ed.el);
         if (inst) {
           try {
-            inst.setValue(code);
+            if (Store.get('humanType') !== false) {
+              await HumanTyping.typeIntoMonaco(inst, code);
+            } else {
+              inst.setValue(code);
+            }
             return true;
           } catch (e) {
-            warn('Monaco setValue 失败，尝试键入', e);
+            if (e && e.name === 'AbortError') throw e;
+            warn('Monaco 写入失败，回退 setValue', e);
+            try {
+              inst.setValue(code);
+              return true;
+            } catch (e2) {
+              /* 交给下面的兜底 */
+            }
           }
         }
         const ta = ed.el.querySelector('textarea');
@@ -2100,6 +2252,22 @@
       if (ed.kind === 'cm') {
         // 首选 CodeMirror 6 的内部 API（实测 contentDOM.cmView.view 可用）
         const view = this.cmViewOf(ed.el);
+        if (view && Store.get('humanType') !== false) {
+          // 拟人写入：逐字敲进去（产生多条小增量，而不是一次整篇替换）
+          try {
+            await HumanTyping.typeIntoCm(view, code);
+            if (view.state.doc.toString().trim()) return true;
+          } catch (e) {
+            if (e && e.name === 'AbortError') throw e;
+            warn('拟人写入失败，回退到整篇替换', e);
+            try {
+              view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: code } });
+              if (view.state.doc.toString().length) return true;
+            } catch (e2) {
+              warn('CM6 dispatch 失败，改用粘贴', e2);
+            }
+          }
+        }
         if (view) {
           try {
             view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: code } });
@@ -2189,13 +2357,13 @@
 
     /* --------------------------- 文本题 --------------------------- */
 
-    applyText(q, answer) {
+    async applyText(q, answer) {
       const text = (answer.answers || []).join('\n\n').trim();
       if (!text) return { ok: false, msg: '答案为空' };
       const ed = q.editor;
       if (ed) {
         if (ed.kind === 'monaco') {
-          const done = this.setCode(q, text);
+          const done = await this.setCode(q, text);
           return { ok: done, msg: done ? '已写入编辑器' : '编辑器写入失败' };
         }
         if (ed.kind === 'pm' || ed.kind === 'cm') {
@@ -2220,18 +2388,18 @@
 
     /* --------------------------- 代码题 --------------------------- */
 
-    applyCode(q, answer) {
+    async applyCode(q, answer) {
       const code = (answer.answers || []).join('\n').replace(/^\s*```[a-zA-Z]*\s*/, '').replace(/\s*```\s*$/, '');
       if (!code.trim()) return { ok: false, msg: '代码为空' };
-      const done = this.setCode(q, code);
+      const done = await this.setCode(q, code);
       return { ok: done, msg: done ? '已写入编辑器（' + code.split('\n').length + ' 行）' : '编辑器写入失败，请手动复制' };
     },
 
     /* --------------------------- 填空题 --------------------------- */
 
-    applyBlanks(q, answer) {
+    async applyBlanks(q, answer) {
       const inputs = $$('input:not([type="hidden"]),textarea', q.container).filter((el) => isVisible(el) && !el.closest('.monaco-editor'));
-      if (!inputs.length) return this.applyText(q, answer);
+      if (!inputs.length) return await this.applyText(q, answer);
       const vals = answer.answers || [];
       inputs.forEach((inp, i) => {
         if (vals[i] == null) return;
@@ -2265,12 +2433,12 @@
       const a = q.answer;
       if (!a) return { ok: false, msg: '还没有生成答案' };
       if (q.type === 'mcq' || q.type === 'multiselect') return this.applyChoice(q, a);
-      if (q.type === 'code') return this.applyCode(q, a);
+      if (q.type === 'code') return await this.applyCode(q, a);
       if (q.type === 'parsons') return await this.applyParsons(q, a);
-      if (q.type === 'blank') return this.applyBlanks(q, a);
+      if (q.type === 'blank') return await this.applyBlanks(q, a);
       if (q.type === 'table') return { ok: false, msg: '表格选择题需要手动点选：' + truncate(a.answers.join(' / '), 80) };
       if (q.type === 'dnd') return { ok: false, msg: '拖拽题需要手动完成：' + truncate(a.answers.join(' / '), 80) };
-      return this.applyText(q, a);
+      return await this.applyText(q, a);
     },
 
     /* --------------------------- 提交 --------------------------- */
@@ -3842,6 +4010,7 @@ details.adv .adv-body { padding-top: 6px; }
         <label class="check"><input type="checkbox" data-k="stream" ${cfg.stream ? 'checked' : ''}/> ${L('对话流式输出', 'Stream chat replies')}</label>
         <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> ${L('隐藏悬浮窗（只用 Alt+J 唤出）', 'Hide panel (Alt+J only)')}</label>
         <label class="check"><input type="checkbox" data-k="anim" ${cfg.anim !== false ? 'checked' : ''}/> ${L('界面动画（关闭后所有过渡停用）', 'UI animations (turn off for instant switches)')}</label>
+        <label class="check"><input type="checkbox" data-k="humanType" ${cfg.humanType !== false ? 'checked' : ''}/> ${L('代码题拟人写入（逐字敲、随机节奏、偶发退格）', 'Human-like code typing (char by char, random pace)')}</label>
 
         <details class="adv">
           <summary>${L('高级设置', 'Advanced')}</summary>
@@ -3970,6 +4139,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('stream', read('stream'));
       put('hidePanel', read('hidePanel'));
       put('anim', read('anim'));
+      put('humanType', read('humanType'));
       put('debug', read('debug'));
       put('systemPrompt', read('systemPrompt'));
       Store.set(patch);
@@ -4052,6 +4222,7 @@ details.adv .adv-body { padding-top: 6px; }
     /** 用户点「停止」：中断当前请求，保留已生成的内容 */
     stop() {
       const wasBusy = App.busy;
+      HumanTyping.cancel();
       LLM.abort();
       App.busy = false;
       this.setBusy(false);
@@ -4489,7 +4660,7 @@ details.adv .adv-body { padding-top: 6px; }
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
+        W.__JMAI__ = { UI, Actions, PageModel, Solvers, HumanTyping, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
       } catch (e) {
         /* ignore */
       }

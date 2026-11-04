@@ -403,6 +403,84 @@ const doc = window.document;
   ok('重新开启动画后标记 on', J.UI.$wrap.getAttribute('data-anim') === 'on');
   J.Store.set({ autoSubmit: false, autoRun: false });
 
+
+  console.log('\n【20】拟人代码写入');
+  const HT = J.HumanTyping;
+  HT.speed = 0; // 测试里把等待压掉
+
+  // 造一个最小的 CM6 文档 + dispatch 记录器
+  const makeView = (initial) => {
+    let buf = initial || '';
+    const calls = [];
+    const view = {
+      state: {
+        get doc() {
+          return { length: buf.length, toString: () => buf };
+        },
+      },
+      dispatch(tr) {
+        calls.push(tr);
+        if (tr.changes) {
+          const c = tr.changes;
+          if (c.to !== undefined) buf = buf.slice(0, c.from) + (c.insert || '') + buf.slice(c.to);
+          else buf = buf.slice(0, c.from) + (c.insert || '') + buf.slice(c.from);
+        }
+      },
+      calls,
+      text: () => buf,
+    };
+    return view;
+  };
+
+  const v1 = makeView('old content');
+  HT.rnd = () => 0.99; // 不触发打错/回头看，节奏最慢也无所谓（speed=0）
+  await HT.typeIntoCm(v1, 'print("hi")\n');
+  ok('拟人写入结果正确', v1.text() === 'print("hi")\n', v1.text());
+  ok('不是一次整篇替换（多次增量）', v1.calls.length >= 6, v1.calls.length);
+  const del = v1.calls.filter((c) => c.changes && c.changes.to !== undefined && !c.changes.insert);
+  ok('先清空旧内容（删除整段）', del.length >= 1, del.length);
+
+  // 强制走打错分支
+  const v2 = makeView('');
+  HT.rnd = () => 0.001; // 恒小于阈值：必定走「打错再退格」分支
+  await HT.typeIntoCm(v2, 'abc');
+  ok('打错后整体仍然正确', v2.text() === 'abc', v2.text());
+  const backspaces = v2.calls.filter((c) => c.changes && c.changes.to !== undefined && c.changes.from !== undefined && !c.changes.insert);
+  ok('出现过「打错再退格」', backspaces.length >= 1, backspaces.length);
+
+  // 光标移动（只改 selection、不改内容）
+  const v3 = makeView('');
+  HT.rnd = () => 0.019; // 低于 0.02 触发回头看
+  await HT.typeIntoCm(v3, 'x = 1\nprint(x)\nprint(x)\n');
+  const moves = v3.calls.filter((c) => !c.changes && c.selection);
+  ok('出现过光标移动', moves.length >= 1, moves.length);
+  ok('光标移动不影响最终内容', v3.text() === 'x = 1\nprint(x)\nprint(x)\n', v3.text());
+
+  // 取消
+  const v4 = makeView('');
+  HT.rnd = Math.random;
+  HT.speed = 1;
+  const typingJob = HT.typeIntoCm(v4, 'abcdefghijklmnopqrstuvwxyz');
+  setTimeout(() => HT.cancel(), 40);
+  let abortOk = false;
+  try {
+    await typingJob;
+  } catch (e) {
+    abortOk = e && e.name === 'AbortError';
+  }
+  ok('可以中途取消', abortOk, abortOk);
+  HT.speed = 0;
+
+  // 关掉开关 → 一次整篇替换
+  const v5 = makeView('zzz');
+  J.Store.set({ humanType: false });
+  const codeQ = { type: 'code', editor: { kind: 'cm', el: null }, container: null };
+  // 直接测 setCode 的分支需要 el，这里只验证开关读取
+  ok('开关可关闭', J.Store.get('humanType') === false);
+  J.Store.set({ humanType: true });
+  HT.speed = 1;
+  HT.rnd = Math.random;
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {

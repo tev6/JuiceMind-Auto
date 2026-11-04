@@ -1446,6 +1446,7 @@ details.adv .adv-body { padding-top: 6px; }
         <label class="check"><input type="checkbox" data-k="stream" ${cfg.stream ? 'checked' : ''}/> ${L('对话流式输出', 'Stream chat replies')}</label>
         <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> ${L('隐藏悬浮窗（只用 Alt+J 唤出）', 'Hide panel (Alt+J only)')}</label>
         <label class="check"><input type="checkbox" data-k="anim" ${cfg.anim !== false ? 'checked' : ''}/> ${L('界面动画（关闭后所有过渡停用）', 'UI animations (turn off for instant switches)')}</label>
+        <label class="check"><input type="checkbox" data-k="humanType" ${cfg.humanType !== false ? 'checked' : ''}/> ${L('代码题拟人写入（逐字敲、随机节奏、偶发退格）', 'Human-like code typing (char by char, random pace)')}</label>
 
         <details class="adv">
           <summary>${L('高级设置', 'Advanced')}</summary>
@@ -1574,6 +1575,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('stream', read('stream'));
       put('hidePanel', read('hidePanel'));
       put('anim', read('anim'));
+      put('humanType', read('humanType'));
       put('debug', read('debug'));
       put('systemPrompt', read('systemPrompt'));
       Store.set(patch);
