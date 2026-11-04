@@ -85,6 +85,7 @@ Tested against one APCSP course only — other JuiceMind courses are not verifie
 
 ## Changelog
 
+- **1.8.0** — animation pass: sliding tab pill, panel↔bubble open/close, card & bubble entrances, language knob; a single switch in Settings turns animations off. JSON output mode and console logs moved into Advanced; the auto-submit / auto-scan switches are temporarily hidden (features kept, moving into the Solve tab next). Scroll areas keep a 12px gap from their scrollbar.
 - **1.7.1** — fixes: the language switch label/knob misalignment; English summaries still leaking Chinese (the whole prompt now switches language and demands English-only output); answers follow the output language while explanations follow the explanation language.
 - **1.7.0** — one-click `中 / EN` switch in the header (UI text + model output language); the redundant collapse button is gone; Settings reorganized with an **Advanced** section (temperature / max tokens / context length / extra prompt / explanation language / separate model output language); the Summary tab now streams.
 - **1.6.0** — a **Summary** tab that turns a tutorial page into quick-study notes (copyable); macOS keyboard support (⌥J via e.code, so Option-combining does not break it); the collapsed bubble is now draggable too; vector logo icon.

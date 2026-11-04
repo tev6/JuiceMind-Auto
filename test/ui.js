@@ -249,6 +249,52 @@ function ok(name, cond, extra) {
   });
   ok('再点一次回到中文', afterZh.lang === 'zh' && afterZh.tabs.join(',') === '答题,总结,对话,设置', afterZh.tabs);
 
+
+  console.log('\n【7】标签色块滑动 + 动画开关');
+  const ind = [];
+  for (const i of [0, 1, 2, 3]) {
+    await page.evaluate((k) => {
+      document.getElementById('jm-ai-host').shadowRoot.querySelectorAll('.tab')[k].click();
+    }, i);
+    await sleep(320);
+    ind.push(
+      await page.evaluate(() => {
+        const h = document.getElementById('jm-ai-host').shadowRoot;
+        const el = h.querySelector('[data-ref="tab-ind"]');
+        const tab = h.querySelector('.tab.on');
+        const r = el.getBoundingClientRect();
+        const t = tab.getBoundingClientRect();
+        return { x: Math.round(r.left), w: Math.round(r.width), tabX: Math.round(t.left), tabW: Math.round(t.width) };
+      })
+    );
+  }
+  ok('色块会跟随标签移动', ind[0].x < ind[3].x && ind[0].x !== ind[2].x, ind.map((o) => o.x));
+  ok('色块宽度与标签一致', ind.every((o) => Math.abs(o.w - o.tabW) <= 2), ind.map((o) => [o.w, o.tabW]));
+
+  const animOff = await page.evaluate(() => {
+    const J = window.__JMAI__;
+    J.Store.set({ anim: false });
+    J.UI.applyAnim();
+    const h = document.getElementById('jm-ai-host').shadowRoot;
+    const w = h.querySelector('.wrap');
+    const panel = h.querySelector('.panel');
+    return { attr: w.getAttribute('data-anim'), trans: getComputedStyle(panel).transitionDuration };
+  });
+  ok('关闭动画后过渡时长为 0', animOff.attr === 'off' && /^0s?$/.test(animOff.trans.trim()), animOff);
+  await page.evaluate(() => {
+    const J = window.__JMAI__;
+    J.Store.set({ anim: true });
+    J.UI.applyAnim();
+  });
+
+  const scrollGap = await page.evaluate(() => {
+    const h = document.getElementById('jm-ai-host').shadowRoot;
+    h.querySelectorAll('.tab')[3].click();
+    const pane = h.querySelector('.pane[data-pane="cfg"]');
+    return { pr: getComputedStyle(pane).paddingRight, sw: pane.offsetWidth - pane.clientWidth };
+  });
+  ok('滚动区右侧留出空隙', parseFloat(scrollGap.pr) >= 10, scrollGap);
+
   await browser.close();
   console.log('\n结果：' + pass + ' 通过 / ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);

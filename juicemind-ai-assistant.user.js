@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.7.1
+// @version      1.8.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.7.1';
+  const VERSION = '1.8.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -221,6 +221,7 @@
     autoRun: false, // 进入新页面是否自动扫描并生成
     hidePanel: false, // 默认不显示悬浮窗，只用 Alt+J 唤出
     stream: true, // 对话页流式输出
+    anim: true, // 界面动画（关闭后所有过渡/动画停用）
     debug: false,
     systemPrompt: '', // 自定义追加提示词
     contextChars: 6000, // 送给模型的页面上下文上限
@@ -2442,8 +2443,20 @@
   box-shadow: 0 18px 50px -12px var(--jm-shadow), 0 2px 8px rgba(0,0,0,.06), inset 0 1px 0 var(--jm-hi);
   transition: opacity .16s ease, transform .16s ease;
 }
-.wrap[data-collapsed="true"] .panel { display: none; }
-.wrap[data-collapsed="true"] .fab { display: grid; }
+.wrap[data-collapsed="true"] .panel {
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: scale(.94) translateY(8px);
+  transition: opacity .16s ease, transform .2s cubic-bezier(.2,.8,.25,1), visibility 0s linear .2s;
+}
+.wrap .panel {
+  transform-origin: bottom right;
+  transition: opacity .18s ease, transform .22s cubic-bezier(.2,.8,.25,1), visibility 0s linear 0s;
+}
+.wrap[data-collapsed="true"] .fab {
+  display: grid; opacity: 1; transform: scale(1);
+  transition: opacity .16s ease .04s, transform .2s cubic-bezier(.2,.8,.25,1) .04s;
+}
+.fab { opacity: 0; transform: scale(.86); }
 .wrap[data-hidden="true"] { display: none !important; }
 .wrap.dragging { transition: none; }
 .wrap.dragging .panel { cursor: grabbing; }
@@ -2454,7 +2467,8 @@
 }
 .ft { cursor: grab; }
 .fab {
-  display: none; width: 52px; height: 52px; border-radius: 18px; border: 1px solid var(--jm-border);
+  display: none; position: absolute; left: 0; top: 0;
+  width: 52px; height: 52px; border-radius: 18px; border: 1px solid var(--jm-border);
   background: linear-gradient(135deg, var(--jm-primary), var(--jm-secondary));
   color: #fff; font-weight: 700; font-size: 15px; letter-spacing: .3px; cursor: pointer;
   box-shadow: 0 10px 26px -8px var(--jm-shadow);
@@ -2483,6 +2497,28 @@
 
 /* 标签页 */
 .tabs { display: flex; gap: 4px; padding: 0 12px 8px; }
+
+@keyframes jm-in { from { opacity: 0; transform: translateY(6px) scale(.995); } to { opacity: 1; transform: none; } }
+@keyframes jm-fade { from { opacity: 0; } to { opacity: 1; } }
+.q { animation: jm-in .2s cubic-bezier(.2,.8,.25,1) both; }
+.cmsg { animation: jm-fade .18s ease both; }
+.tab-ind {
+  position: absolute; top: 3px; bottom: 3px; left: 0; width: 0; border-radius: 10px;
+  background: var(--jm-chip); box-shadow: inset 0 0 0 1px var(--jm-border);
+  transition: transform .24s cubic-bezier(.3,.7,.3,1), width .24s cubic-bezier(.3,.7,.3,1), opacity .18s ease;
+  pointer-events: none; z-index: 0;
+}
+.tabs { position: relative; }
+
+/* 关闭动画 */
+.wrap[data-anim="off"] *, .wrap[data-anim="off"] *::before, .wrap[data-anim="off"] *::after {
+  transition: none !important; animation: none !important;
+}
+
+/* 语言开关：更顺滑的滑块 */
+.lang-switch .knob { transition: transform .24s cubic-bezier(.4,0,.2,1), box-shadow .2s ease; }
+.lang-switch:active .knob { box-shadow: 0 1px 8px -1px var(--jm-shadow); }
+
 .tab {
   flex: 1 1 0; padding: 7px 6px; border-radius: 10px; border: 1px solid transparent; background: transparent;
   color: var(--jm-muted); font-size: 12.5px; font-family: inherit; cursor: pointer;
@@ -2493,7 +2529,17 @@
 .body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0 12px 4px; }
 .pane { display: none; padding-bottom: 8px; }
 .pane.on { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.pane[data-pane="solve"], .pane[data-pane="cfg"] { overflow-y: auto; }
+.pane[data-pane="solve"], .pane[data-pane="cfg"], .pane[data-pane="summary"] { overflow-y: auto; }
+.pane {
+  padding-right: 12px;              /* 内容与右侧滚动条之间留 12px */
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--jm-scroll) transparent;
+}
+.chat-log { padding-right: 12px; }
+.body { padding-right: 4px; }
+.pane::-webkit-scrollbar, .chat-log::-webkit-scrollbar { width: 8px; }
+.pane::-webkit-scrollbar-track, .chat-log::-webkit-scrollbar-track { background: transparent; }
 .body::-webkit-scrollbar, .pane::-webkit-scrollbar, .chat-log::-webkit-scrollbar, .answer::-webkit-scrollbar { width: 8px; }
 .body::-webkit-scrollbar-thumb, .pane::-webkit-scrollbar-thumb, .chat-log::-webkit-scrollbar-thumb, .answer::-webkit-scrollbar-thumb {
   background: var(--jm-scroll); border-radius: 8px;
@@ -2685,7 +2731,7 @@
 .lang-switch .knob {
   position: absolute; top: 0; left: 0; width: 28px; height: 20px; border-radius: 10px;
   background: linear-gradient(135deg, var(--jm-primary), var(--jm-secondary));
-  box-shadow: 0 1px 4px -1px var(--jm-shadow); transition: transform .16s ease;
+  box-shadow: 0 1px 4px -1px var(--jm-shadow);
 }
 .lang-switch[data-lang="en"] .knob { transform: translateX(28px); }
 .lang-switch span {
@@ -3023,6 +3069,7 @@ details.adv .adv-body { padding-top: 6px; }
             </div>
           </div>
           <div class="tabs">
+            <span class="tab-ind" data-ref="tab-ind"></span>
             <button class="tab on" data-tab="solve">${L('答题', 'Solve')}</button>
             <button class="tab" data-tab="summary">${L('总结', 'Summary')}</button>
             <button class="tab" data-tab="chat">${L('对话', 'Chat')}</button>
@@ -3068,9 +3115,11 @@ details.adv .adv-body { padding-top: 6px; }
       this.renderQuestions();
       this.renderChat();
       this.renderSummary();
+      this.applyAnim();
       this.setTab(App.tab || 'solve');
       this.updateSub();
       this.updateUsage();
+      this.moveTabIndicator();
     },
 
     /** 切换界面语言：重绘骨架 + 配置，保持当前状态 */
@@ -3326,7 +3375,31 @@ details.adv .adv-body { padding-top: 6px; }
       App.tab = name;
       this.refs.tabs.forEach((t) => t.classList.toggle('on', t.getAttribute('data-tab') === name));
       this.refs.panes.forEach((p) => p.classList.toggle('on', p.getAttribute('data-pane') === name));
+      this.moveTabIndicator();
       if (name === 'summary') this.renderSummary();
+    },
+
+    /** 让标签页的色块滑到当前标签下面 */
+    moveTabIndicator() {
+      const ind = this.refs && this.refs['tab-ind'];
+      const active = this.refs.tabs.find((t) => t.classList.contains('on'));
+      if (!ind || !active) return;
+      const w = active.offsetWidth;
+      const x = active.offsetLeft;
+      if (!w) {
+        ind.style.opacity = '0';
+        return;
+      }
+      ind.style.opacity = '1';
+      ind.style.width = w + 'px';
+      ind.style.transform = 'translateX(' + x + 'px)';
+    },
+
+    /** 应用/取消界面动画 */
+    applyAnim() {
+      if (!this.$wrap) return;
+      const on = Store.get('anim') !== false;
+      this.$wrap.setAttribute('data-anim', on ? 'on' : 'off');
     },
 
     /* ------------------------- 状态 ------------------------- */
@@ -3754,16 +3827,15 @@ details.adv .adv-body { padding-top: 6px; }
           </datalist>
           <div class="hint" style="margin:4px 0 0">${L('模型名是自由文本，下拉只是常见名字的建议；服务端报「supported model names」时按它给的填。', 'The model name is free text; the dropdown only suggests common names. If the server lists "supported model names", use one of those.')}</div>
         </div>
-        <label class="check"><input type="checkbox" data-k="jsonMode" ${cfg.jsonMode ? 'checked' : ''}/> ${L('JSON 输出模式（更稳的答案解析）', 'JSON output mode (more reliable parsing)')}</label>
-        <label class="check"><input type="checkbox" data-k="autoSubmit" ${cfg.autoSubmit ? 'checked' : ''}/> ${L('填入后自动点提交', 'Submit automatically after filling')}</label>
-        <label class="check"><input type="checkbox" data-k="autoRun" ${cfg.autoRun ? 'checked' : ''}/> ${L('进入新页面自动扫描并生成', 'Auto scan & generate on new pages')}</label>
         <label class="check"><input type="checkbox" data-k="stream" ${cfg.stream ? 'checked' : ''}/> ${L('对话流式输出', 'Stream chat replies')}</label>
         <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> ${L('隐藏悬浮窗（只用 Alt+J 唤出）', 'Hide panel (Alt+J only)')}</label>
-        <label class="check"><input type="checkbox" data-k="debug" ${cfg.debug ? 'checked' : ''}/> ${L('控制台调试日志', 'Console debug logs')}</label>
+        <label class="check"><input type="checkbox" data-k="anim" ${cfg.anim !== false ? 'checked' : ''}/> ${L('界面动画（关闭后所有过渡停用）', 'UI animations (turn off for instant switches)')}</label>
 
         <details class="adv">
           <summary>${L('高级设置', 'Advanced')}</summary>
           <div class="adv-body">
+            <label class="check"><input type="checkbox" data-k="jsonMode" ${cfg.jsonMode ? 'checked' : ''}/> ${L('JSON 输出模式（更稳的答案解析）', 'JSON output mode (more reliable parsing)')}</label>
+            <label class="check"><input type="checkbox" data-k="debug" ${cfg.debug ? 'checked' : ''}/> ${L('控制台调试日志', 'Console debug logs')}</label>
             <label class="check"><input type="checkbox" data-k="outputLangCustom" ${cfg.outputLangCustom ? 'checked' : ''}/> ${L('独立设置大模型输出语言', 'Set model output language separately')}</label>
             <div class="field check sub ${cfg.outputLangCustom ? '' : 'disabled'}" data-ref="outlang-field">
               <label>${L('大模型输出语言', 'Model output language')}</label>
@@ -3868,25 +3940,28 @@ details.adv .adv-body { padding-top: 6px; }
         if (!el) return undefined;
         return el.type === 'checkbox' ? el.checked : el.value;
       };
-      const patch = {
-        baseUrl: String(read('baseUrl') || '').trim(),
-        apiKey: String(read('apiKey') || '').trim(),
-        model: String(read('model') || '').trim(),
-        temperature: Number(read('temperature')) || 0,
-        maxTokens: Number(read('maxTokens')) || 2048,
-        contextChars: Number(read('contextChars')) || 6000,
-        language: read('language'),
-        outputLangCustom: read('outputLangCustom'),
-        outputLang: read('outputLang') || Store.get('uiLang'),
-        jsonMode: read('jsonMode'),
-        autoSubmit: read('autoSubmit'),
-        autoRun: read('autoRun'),
-        stream: read('stream'),
-        hidePanel: read('hidePanel'),
-        debug: read('debug'),
-        systemPrompt: read('systemPrompt'),
+      // 只写页面上真实存在的字段：被暂时隐藏的开关（autoSubmit / autoRun）保持原值
+      const patch = {};
+      const put = (k, v) => {
+        if (v !== undefined) patch[k] = v;
       };
+      put('baseUrl', String(read('baseUrl') || '').trim());
+      put('apiKey', String(read('apiKey') || '').trim());
+      put('model', String(read('model') || '').trim());
+      put('temperature', Number(read('temperature')) || 0);
+      put('maxTokens', Number(read('maxTokens')) || 2048);
+      put('contextChars', Number(read('contextChars')) || 6000);
+      put('language', read('language'));
+      put('outputLangCustom', read('outputLangCustom'));
+      put('outputLang', read('outputLang') || Store.get('uiLang'));
+      put('jsonMode', read('jsonMode'));
+      put('stream', read('stream'));
+      put('hidePanel', read('hidePanel'));
+      put('anim', read('anim'));
+      put('debug', read('debug'));
+      put('systemPrompt', read('systemPrompt'));
       Store.set(patch);
+      this.applyAnim();
       this.updateSub();
       this.toast(L('已保存', 'Saved'));
       this.status(L('配置已保存', 'Settings saved'));

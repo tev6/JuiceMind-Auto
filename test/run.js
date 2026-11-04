@@ -384,6 +384,25 @@ const doc = window.document;
     return typeof sys === 'string' && sys.length > 0;
   })());
 
+
+  console.log('\n【19】设置页结构 / 动画开关 / 隐藏项保留');
+  J.Store.set({ autoSubmit: true, autoRun: true, anim: false });
+  J.UI.renderSettings();
+  const cfgRoot = host.shadowRoot;
+  ok('「填入后自动点提交」已从设置页移除', !cfgRoot.querySelector('[data-k="autoSubmit"]'));
+  ok('「进入新页面自动扫描」已从设置页移除', !cfgRoot.querySelector('[data-k="autoRun"]'));
+  ok('JSON 输出模式已移入高级设置', !!cfgRoot.querySelector('details.adv [data-k="jsonMode"]'));
+  ok('控制台日志已移入高级设置', !!cfgRoot.querySelector('details.adv [data-k="debug"]'));
+  ok('高级设置外不再有 JSON / 调试开关', !cfgRoot.querySelector('.adv-body ~ [data-k="jsonMode"]'));
+  J.UI.saveSettings();
+  ok('保存设置不会抹掉 autoSubmit（功能保留）', J.Store.get('autoSubmit') === true, J.Store.get('autoSubmit'));
+  ok('保存设置不会抹掉 autoRun（功能保留）', J.Store.get('autoRun') === true, J.Store.get('autoRun'));
+  ok('关闭动画后 wrap 标记 off', J.UI.$wrap.getAttribute('data-anim') === 'off', J.UI.$wrap.getAttribute('data-anim'));
+  J.Store.set({ anim: true });
+  J.UI.applyAnim();
+  ok('重新开启动画后标记 on', J.UI.$wrap.getAttribute('data-anim') === 'on');
+  J.Store.set({ autoSubmit: false, autoRun: false });
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {
