@@ -289,34 +289,65 @@
       UI.setSummaryStreaming(true);
       UI.status(L('正在总结本页…', 'Summarizing…'), 'busy');
 
-      const sys = [
-        '你是学习助手。把用户给出的课程正文整理成「速学笔记」，帮助学生不用读完原文也能抓住重点。',
-        '只依据正文，不要补充正文里没有的内容；正文没提的不要写。',
-        '严格按下面的 Markdown 结构输出，不要开场白、不要结束语：',
-        '',
-        '## 一句话总结',
-        '（一句话概括这页讲什么）',
-        '',
-        '## 核心要点',
-        '- （4~8 条，每条一句话解释）',
-        '',
-        '## 关键术语',
-        '| 术语 | 含义 |',
-        '| --- | --- |',
-        '（3~8 行）',
-        '',
-        '## 易错点',
-        '- （2~4 条；确实没有就写「无明显易错点」）',
-        '',
-        '## 自测',
-        '1. （2~3 个问题，答案放在括号里）',
-        '',
-        `用${outputLanguageName()}输出，总长度 300~500 字。`,
-      ].join('\n');
+      const outEn = outputLanguage() === 'en';
+      const sys = outEn
+        ? [
+            'You are a study assistant. Turn the course text the user provides into quick-study notes, so a student can grasp the key points without reading the whole page.',
+            'Use ONLY the provided text. Never add facts that are not in it.',
+            'Output strictly in the Markdown structure below. No preamble, no closing remarks.',
+            '',
+            '## One-line summary',
+            '(one sentence on what this page teaches)',
+            '',
+            '## Key points',
+            '- (4-8 bullets, each with a one-line explanation)',
+            '',
+            '## Glossary',
+            '| Term | Meaning |',
+            '| --- | --- |',
+            '(3-8 rows)',
+            '',
+            '## Pitfalls',
+            '- (2-4 bullets; write "No obvious pitfalls" if there really are none)',
+            '',
+            '## Self-check',
+            '1. (2-3 questions, put the answer in parentheses)',
+            '',
+            'Write everything in ENGLISH, including all headings, table headers and the content itself. Never mix in Chinese characters. Total length 250-400 words.',
+          ].join('\n')
+        : [
+            '你是学习助手。把用户给出的课程正文整理成「速学笔记」，帮助学生不用读完原文也能抓住重点。',
+            '只依据正文，不要补充正文里没有的内容；正文没提的不要写。',
+            '严格按下面的 Markdown 结构输出，不要开场白、不要结束语：',
+            '',
+            '## 一句话总结',
+            '（一句话概括这页讲什么）',
+            '',
+            '## 核心要点',
+            '- （4~8 条，每条一句话解释）',
+            '',
+            '## 关键术语',
+            '| 术语 | 含义 |',
+            '| --- | --- |',
+            '（3~8 行）',
+            '',
+            '## 易错点',
+            '- （2~4 条；确实没有就写「无明显易错点」）',
+            '',
+            '## 自测',
+            '1. （2~3 个问题，答案放在括号里）',
+            '',
+            '全部用中文书写，包括所有小标题、表头与正文，不要夹杂英文句子。总长度 300~500 字。',
+          ].join('\n');
 
       const messages = [
         { role: 'system', content: sys },
-        { role: 'user', content: '课程标题：' + PageModel.title() + '\n\n正文：\n' + ctx },
+        {
+          role: 'user',
+          content: outEn
+            ? 'Course title: ' + PageModel.title() + '\n\nContent:\n' + ctx + '\n\n(Reply entirely in English.)'
+            : '课程标题：' + PageModel.title() + '\n\n正文：\n' + ctx + '\n\n（全部用中文回复。）',
+        },
       ];
 
       let acc = '';
@@ -476,7 +507,7 @@
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, VERSION };
+        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
       } catch (e) {
         /* ignore */
       }

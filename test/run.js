@@ -356,6 +356,34 @@ const doc = window.document;
   ok('再按一次展开', J.UI.$wrap.getAttribute('data-collapsed') === 'false');
   ok('识别到非 Mac 平台', J.IS_MAC === false);
 
+
+  console.log('\n【18】英文模式：输出语言与总结提示词');
+  J.Store.set({ uiLang: 'en', stream: false });
+  ok('英文模式下界面语言为 en', J.curLang() === 'en');
+  ok('未勾选独立设置时输出语言跟随界面', J.outputLanguage() === 'en' && J.outputLanguageName() === 'English');
+  J.Store.set({ outputLangCustom: true, outputLang: 'zh' });
+  ok('勾选后可单独指定输出语言', J.outputLanguage() === 'zh' && J.outputLanguageName() === '中文');
+  J.Store.set({ outputLangCustom: false });
+
+  let captured = null;
+  window.fetch = async (url, init) => {
+    captured = JSON.parse((init && init.body) || '{}');
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: '## One-line summary\nConditionals branch.' } }], usage: { total_tokens: 9 } }),
+      { status: 200 }
+    );
+  };
+  await J.Actions.summarize();
+  const sysEn = (captured && captured.messages && captured.messages[0] && captured.messages[0].content) || '';
+  ok('英文模式：总结提示词整体是英文', /One-line summary/.test(sysEn) && !/一句话总结/.test(sysEn), sysEn.slice(0, 80));
+  ok('英文模式：明确要求全英文输出', /Write everything in ENGLISH/.test(sysEn));
+  ok('英文模式：正文也用英文标注', /Reply entirely in English/.test((captured.messages[1] || {}).content || ''));
+  J.Store.set({ uiLang: 'zh' });
+  ok('切回中文后提示词变回中文', (() => {
+    const sys = J.Solvers.systemPrompt();
+    return typeof sys === 'string' && sys.length > 0;
+  })());
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {

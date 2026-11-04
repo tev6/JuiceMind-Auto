@@ -19,7 +19,8 @@
     answers: new Map(), // key -> {answer, at}
 
     systemPrompt() {
-      const lang = outputLanguageName();
+      const lang = Store.get('language') === 'en' ? 'English' : '中文';
+      const outLang = outputLanguageName();
       const extra = Store.get('systemPrompt') || '';
       return [
         '你是 JuiceMind 在线学习平台的作业助手，服务对象是正在上课的学生。',
@@ -32,6 +33,7 @@
         '4. 简答/论述题用与题目相同语言作答，长度贴合题目要求（没要求就 2-4 句）。',
         '5. 填空题按空位顺序给答案，保持原语言的拼写与大小写。',
         `6. explanation 字段用${lang}写，便于学生理解。`,
+        `7. answers 里的答案正文用${outLang}书写（代码本身按题目要求的语言），不要混用其他语言。`,
         '',
         ANSWER_SCHEMA,
         extra ? '\n补充要求：' + extra : '',

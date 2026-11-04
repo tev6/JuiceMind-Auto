@@ -65,6 +65,35 @@ async function installMock(page) {
     window.fetch = async function (url, init) {
       const body = JSON.parse((init && init.body) || '{}');
       const joined = (body.messages || []).map((m) => m.content).join('\n');
+      if (/quick-study notes/.test(joined)) {
+        const en = [
+          '## One-line summary',
+          'Conditionals let a program choose between paths: independent if statements, if-else chains, and nested conditionals.',
+          '',
+          '## Key points',
+          '- Independent `if` statements are all evaluated; earlier results never short-circuit later ones',
+          '- Overlapping conditions can produce several matching branches in one run',
+          '- Nesting puts one conditional inside another branch',
+          '- `if / elif / else` guarantees exactly one branch runs',
+          '- Deeper nesting hurts readability — prefer early returns or flatter chains',
+          '',
+          '## Glossary',
+          '| Term | Meaning |',
+          '| --- | --- |',
+          '| independent if | a separate `if` that is always checked |',
+          '| nested conditional | a conditional inside another branch |',
+          '',
+          '## Pitfalls',
+          '- Assuming `elif` behaves like a second independent `if`',
+          '- Losing track of indentation in deep nesting',
+          '',
+          '## Self-check',
+          '1. When do two branches both run? (with independent if statements and overlapping conditions)',
+          '2. How many branches can an if/elif/else chain execute? (exactly one)',
+        ].join('\n');
+        const j = { choices: [{ message: { role: 'assistant', content: en } }], usage: { total_tokens: 300 } };
+        return new Response(JSON.stringify(j), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       if (/速学笔记/.test(joined)) {
         const j = { choices: [{ message: { role: 'assistant', content: summaryMd } }], usage: { total_tokens: 320 } };
         return new Response(JSON.stringify(j), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -240,12 +269,18 @@ async function installMock(page) {
   await new Promise((r) => setTimeout(r, 400));
   await page.screenshot({ path: path.join(OUT, '10-advanced.png') });
 
-  // 切到英文
+  // 切到英文并重新总结，验证英文输出
   await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');
     host.shadowRoot.querySelector('[data-ref="btn-lang"]').click();
   });
-  await new Promise((r) => setTimeout(r, 500));
+  await new Promise((r) => setTimeout(r, 400));
+  await page.evaluate(() => {
+    const host = document.getElementById('jm-ai-host');
+    host.shadowRoot.querySelectorAll('.tab')[1].click();
+  });
+  await clickInPanel('btn-summary');
+  await new Promise((r) => setTimeout(r, 1200));
   await page.screenshot({ path: path.join(OUT, '11-english.png') });
   const metrics = await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');

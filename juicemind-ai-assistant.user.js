@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.7.0
+// @version      1.7.1
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.7.0';
+  const VERSION = '1.7.1';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -1800,7 +1800,8 @@
     answers: new Map(), // key -> {answer, at}
 
     systemPrompt() {
-      const lang = outputLanguageName();
+      const lang = Store.get('language') === 'en' ? 'English' : '中文';
+      const outLang = outputLanguageName();
       const extra = Store.get('systemPrompt') || '';
       return [
         '你是 JuiceMind 在线学习平台的作业助手，服务对象是正在上课的学生。',
@@ -1813,6 +1814,7 @@
         '4. 简答/论述题用与题目相同语言作答，长度贴合题目要求（没要求就 2-4 句）。',
         '5. 填空题按空位顺序给答案，保持原语言的拼写与大小写。',
         `6. explanation 字段用${lang}写，便于学生理解。`,
+        `7. answers 里的答案正文用${outLang}书写（代码本身按题目要求的语言），不要混用其他语言。`,
         '',
         ANSWER_SCHEMA,
         extra ? '\n补充要求：' + extra : '',
@@ -2674,19 +2676,22 @@
 
 /* 语言开关：拨动样式 */
 .lang-switch {
-  position: relative; width: 54px; height: 22px; flex: 0 0 auto;
-  display: inline-flex; align-items: center; justify-content: space-between;
-  padding: 0 7px; border-radius: 11px; cursor: pointer; font-family: inherit;
+  position: relative; width: 58px; height: 22px; flex: 0 0 auto;
+  display: inline-flex; align-items: stretch;
+  padding: 0; border-radius: 11px; cursor: pointer; font-family: inherit;
   border: 1px solid var(--jm-border); background: var(--jm-chip);
   font-size: 9.5px; font-weight: 700; color: var(--jm-text-2); letter-spacing: 0;
 }
 .lang-switch .knob {
-  position: absolute; top: 1px; left: 1px; width: 18px; height: 18px; border-radius: 50%;
+  position: absolute; top: 0; left: 0; width: 28px; height: 20px; border-radius: 10px;
   background: linear-gradient(135deg, var(--jm-primary), var(--jm-secondary));
   box-shadow: 0 1px 4px -1px var(--jm-shadow); transition: transform .16s ease;
 }
-.lang-switch[data-lang="en"] .knob { transform: translateX(32px); }
-.lang-switch span { position: relative; z-index: 1; }
+.lang-switch[data-lang="en"] .knob { transform: translateX(28px); }
+.lang-switch span {
+  position: relative; z-index: 1; flex: 1 1 0; display: flex;
+  align-items: center; justify-content: center; line-height: 1;
+}
 .lang-switch[data-lang="zh"] .lz, .lang-switch[data-lang="en"] .le { color: #fff; }
 
 /* 高级设置折叠 */
@@ -4179,34 +4184,65 @@ details.adv .adv-body { padding-top: 6px; }
       UI.setSummaryStreaming(true);
       UI.status(L('正在总结本页…', 'Summarizing…'), 'busy');
 
-      const sys = [
-        '你是学习助手。把用户给出的课程正文整理成「速学笔记」，帮助学生不用读完原文也能抓住重点。',
-        '只依据正文，不要补充正文里没有的内容；正文没提的不要写。',
-        '严格按下面的 Markdown 结构输出，不要开场白、不要结束语：',
-        '',
-        '## 一句话总结',
-        '（一句话概括这页讲什么）',
-        '',
-        '## 核心要点',
-        '- （4~8 条，每条一句话解释）',
-        '',
-        '## 关键术语',
-        '| 术语 | 含义 |',
-        '| --- | --- |',
-        '（3~8 行）',
-        '',
-        '## 易错点',
-        '- （2~4 条；确实没有就写「无明显易错点」）',
-        '',
-        '## 自测',
-        '1. （2~3 个问题，答案放在括号里）',
-        '',
-        `用${outputLanguageName()}输出，总长度 300~500 字。`,
-      ].join('\n');
+      const outEn = outputLanguage() === 'en';
+      const sys = outEn
+        ? [
+            'You are a study assistant. Turn the course text the user provides into quick-study notes, so a student can grasp the key points without reading the whole page.',
+            'Use ONLY the provided text. Never add facts that are not in it.',
+            'Output strictly in the Markdown structure below. No preamble, no closing remarks.',
+            '',
+            '## One-line summary',
+            '(one sentence on what this page teaches)',
+            '',
+            '## Key points',
+            '- (4-8 bullets, each with a one-line explanation)',
+            '',
+            '## Glossary',
+            '| Term | Meaning |',
+            '| --- | --- |',
+            '(3-8 rows)',
+            '',
+            '## Pitfalls',
+            '- (2-4 bullets; write "No obvious pitfalls" if there really are none)',
+            '',
+            '## Self-check',
+            '1. (2-3 questions, put the answer in parentheses)',
+            '',
+            'Write everything in ENGLISH, including all headings, table headers and the content itself. Never mix in Chinese characters. Total length 250-400 words.',
+          ].join('\n')
+        : [
+            '你是学习助手。把用户给出的课程正文整理成「速学笔记」，帮助学生不用读完原文也能抓住重点。',
+            '只依据正文，不要补充正文里没有的内容；正文没提的不要写。',
+            '严格按下面的 Markdown 结构输出，不要开场白、不要结束语：',
+            '',
+            '## 一句话总结',
+            '（一句话概括这页讲什么）',
+            '',
+            '## 核心要点',
+            '- （4~8 条，每条一句话解释）',
+            '',
+            '## 关键术语',
+            '| 术语 | 含义 |',
+            '| --- | --- |',
+            '（3~8 行）',
+            '',
+            '## 易错点',
+            '- （2~4 条；确实没有就写「无明显易错点」）',
+            '',
+            '## 自测',
+            '1. （2~3 个问题，答案放在括号里）',
+            '',
+            '全部用中文书写，包括所有小标题、表头与正文，不要夹杂英文句子。总长度 300~500 字。',
+          ].join('\n');
 
       const messages = [
         { role: 'system', content: sys },
-        { role: 'user', content: '课程标题：' + PageModel.title() + '\n\n正文：\n' + ctx },
+        {
+          role: 'user',
+          content: outEn
+            ? 'Course title: ' + PageModel.title() + '\n\nContent:\n' + ctx + '\n\n(Reply entirely in English.)'
+            : '课程标题：' + PageModel.title() + '\n\n正文：\n' + ctx + '\n\n（全部用中文回复。）',
+        },
       ];
 
       let acc = '';
@@ -4366,7 +4402,7 @@ details.adv .adv-body { padding-top: 6px; }
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, VERSION };
+        W.__JMAI__ = { UI, Actions, PageModel, Solvers, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
       } catch (e) {
         /* ignore */
       }

@@ -281,19 +281,22 @@
 
 /* 语言开关：拨动样式 */
 .lang-switch {
-  position: relative; width: 54px; height: 22px; flex: 0 0 auto;
-  display: inline-flex; align-items: center; justify-content: space-between;
-  padding: 0 7px; border-radius: 11px; cursor: pointer; font-family: inherit;
+  position: relative; width: 58px; height: 22px; flex: 0 0 auto;
+  display: inline-flex; align-items: stretch;
+  padding: 0; border-radius: 11px; cursor: pointer; font-family: inherit;
   border: 1px solid var(--jm-border); background: var(--jm-chip);
   font-size: 9.5px; font-weight: 700; color: var(--jm-text-2); letter-spacing: 0;
 }
 .lang-switch .knob {
-  position: absolute; top: 1px; left: 1px; width: 18px; height: 18px; border-radius: 50%;
+  position: absolute; top: 0; left: 0; width: 28px; height: 20px; border-radius: 10px;
   background: linear-gradient(135deg, var(--jm-primary), var(--jm-secondary));
   box-shadow: 0 1px 4px -1px var(--jm-shadow); transition: transform .16s ease;
 }
-.lang-switch[data-lang="en"] .knob { transform: translateX(32px); }
-.lang-switch span { position: relative; z-index: 1; }
+.lang-switch[data-lang="en"] .knob { transform: translateX(28px); }
+.lang-switch span {
+  position: relative; z-index: 1; flex: 1 1 0; display: flex;
+  align-items: center; justify-content: center; line-height: 1;
+}
 .lang-switch[data-lang="zh"] .lz, .lang-switch[data-lang="en"] .le { color: #fff; }
 
 /* 高级设置折叠 */
