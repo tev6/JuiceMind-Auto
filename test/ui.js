@@ -295,6 +295,42 @@ function ok(name, cond, extra) {
   });
   ok('滚动区右侧留出空隙', parseFloat(scrollGap.pr) >= 10, scrollGap);
 
+
+  // 切换语言时色块不应滑动（应直接归位）
+  const langFrames = [];
+  await page.evaluate(() => {
+    document.getElementById('jm-ai-host').shadowRoot.querySelector(
+      'button[data-tab="chat"]'
+    ).click();
+  });
+  await sleep(350);
+  for (let i = 0; i < 4; i++) {
+    if (i === 0) {
+      await page.evaluate(() => {
+        document.getElementById('jm-ai-host').shadowRoot.querySelector('[data-ref="btn-lang"]').click();
+      });
+    }
+    await sleep(70);
+    langFrames.push(
+      await page.evaluate(() => {
+        const h = document.getElementById('jm-ai-host').shadowRoot;
+        const ind = h.querySelector('[data-ref="tab-ind"]');
+        return Math.round(ind.getBoundingClientRect().left);
+      })
+    );
+  }
+  ok('切换语言时色块不滑动（始终贴住标签）', new Set(langFrames).size === 1, langFrames);
+  const onStyle = await page.evaluate(() => {
+    const h = document.getElementById('jm-ai-host').shadowRoot;
+    const cs = getComputedStyle(h.querySelector('.tab.on'));
+    return cs.backgroundColor;
+  });
+  ok('激活标签自身不再有底色（只有一层色块）', /rgba?\(0, 0, 0, 0\)|transparent/.test(onStyle), onStyle);
+  await page.evaluate(() => {
+    document.getElementById('jm-ai-host').shadowRoot.querySelector('[data-ref="btn-lang"]').click();
+  });
+  await sleep(250);
+
   await browser.close();
   console.log('\n结果：' + pass + ' 通过 / ' + fail + ' 失败');
   process.exit(fail ? 1 : 0);

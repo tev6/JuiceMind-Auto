@@ -107,7 +107,7 @@
 .q { animation: jm-in .2s cubic-bezier(.2,.8,.25,1) both; }
 .cmsg { animation: jm-fade .18s ease both; }
 .tab-ind {
-  position: absolute; top: 3px; bottom: 3px; left: 0; width: 0; border-radius: 10px;
+  position: absolute; top: 0; height: 0; left: 0; width: 0; border-radius: 10px;
   background: var(--jm-chip); box-shadow: inset 0 0 0 1px var(--jm-border);
   transition: transform .24s cubic-bezier(.3,.7,.3,1), width .24s cubic-bezier(.3,.7,.3,1), opacity .18s ease;
   pointer-events: none; z-index: 0;
@@ -128,7 +128,7 @@
   color: var(--jm-muted); font-size: 12.5px; font-family: inherit; cursor: pointer;
 }
 .tab:hover { color: var(--jm-text); }
-.tab.on { background: var(--jm-chip); color: var(--jm-accent-text); font-weight: 600; border-color: var(--jm-border); }
+.tab.on { background: transparent; color: var(--jm-accent-text); font-weight: 600; border-color: transparent; }
 
 .body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0 12px 4px; }
 .pane { display: none; padding-bottom: 8px; }
@@ -720,10 +720,10 @@ details.adv .adv-body { padding-top: 6px; }
       this.renderChat();
       this.renderSummary();
       this.applyAnim();
-      this.setTab(App.tab || 'solve');
+      this.setTab(App.tab || 'solve', true);
       this.updateSub();
       this.updateUsage();
-      this.moveTabIndicator();
+      this.moveTabIndicator(true);
     },
 
     /** 切换界面语言：重绘骨架 + 配置，保持当前状态 */
@@ -975,28 +975,40 @@ details.adv .adv-body { padding-top: 6px; }
       window.addEventListener('resize', debounce(() => this.restorePos(), 200));
     },
 
-    setTab(name) {
+    setTab(name, instant) {
       App.tab = name;
       this.refs.tabs.forEach((t) => t.classList.toggle('on', t.getAttribute('data-tab') === name));
       this.refs.panes.forEach((p) => p.classList.toggle('on', p.getAttribute('data-pane') === name));
-      this.moveTabIndicator();
+      this.moveTabIndicator(!!instant);
       if (name === 'summary') this.renderSummary();
     },
 
-    /** 让标签页的色块滑到当前标签下面 */
-    moveTabIndicator() {
+    /** 让色块贴到当前标签下面；instant=true 时不播放滑动动画 */
+    moveTabIndicator(instant) {
       const ind = this.refs && this.refs['tab-ind'];
       const active = this.refs.tabs.find((t) => t.classList.contains('on'));
       if (!ind || !active) return;
       const w = active.offsetWidth;
-      const x = active.offsetLeft;
       if (!w) {
         ind.style.opacity = '0';
         return;
       }
-      ind.style.opacity = '1';
-      ind.style.width = w + 'px';
-      ind.style.transform = 'translateX(' + x + 'px)';
+      const apply = () => {
+        ind.style.top = active.offsetTop + 'px';
+        ind.style.height = active.offsetHeight + 'px';
+        ind.style.width = w + 'px';
+        ind.style.transform = 'translateX(' + active.offsetLeft + 'px)';
+        ind.style.opacity = '1';
+      };
+      if (instant) {
+        // 先禁用过渡 → 落位 → 强制回流 → 恢复，避免出现「从最左侧滑过去」的假动画
+        ind.style.transition = 'none';
+        apply();
+        void ind.offsetWidth;
+        ind.style.transition = '';
+      } else {
+        apply();
+      }
     },
 
     /** 应用/取消界面动画 */
