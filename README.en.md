@@ -85,6 +85,7 @@ Tested against one APCSP course only — other JuiceMind courses are not verifie
 
 ## Changelog
 
+- **1.11.0** — batch answering: the whole page in one request (toggle in Settings; off = per-question as before). Questions the batch does not return are marked failed with a **Regenerate** action on the card. Prompt slimmed (system 500→240 tokens). On a 5-question page: 1966→587 input tokens (−70%).
 - **1.10.0** — token diet: context is now trimmed per question (multiple-choice sends no page body; long pages send only the passage around the question; default cap 6000→2400 chars), explanations are off by default (toggle in Advanced), and max_tokens is capped per question type (120 for MCQ). Measured: about −90% for MCQ, −55% for short answer.
 - **1.9.1** — new average typing speed slider (15-120 WPM; the measured average tracks the setting); the whole header of an answer card now toggles expansion (keyboard Enter/Space too).
 - **1.9.0** — coding answers are now typed out character by character (random pace, pauses at line ends, ~5% typo-and-backspace, ~2% glance-backs), so the collab op log shows many small increments instead of one whole-document replace. Can be turned off in Settings.

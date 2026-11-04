@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.10.0
+// @version      1.11.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.10.0';
+  const VERSION = '1.11.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -223,6 +223,7 @@
     hidePanel: false, // 默认不显示悬浮窗，只用 Alt+J 唤出
     stream: true, // 对话页流式输出
     anim: true, // 界面动画（关闭后所有过渡/动画停用）
+    batchSolve: true, // 整页一次请求答完（省 token）；关掉则逐题请求
     humanType: true, // 代码题拟人写入：逐字敲、随机节奏、偶发退格与光标移动
     typingWpm: 75, // 拟人写入的平均速度（WPM，15~120）
     debug: false,
@@ -1786,19 +1787,13 @@
 
   /* ============================ 7. 题型求解器 ============================ */
 
-  const ANSWER_SCHEMA = `只输出一个 JSON 对象（不要 Markdown 围栏、不要多余文字），结构：
-{
-  "type": "mcq | multiselect | short | free | code | parsons | blank",
-  "answers": [...],
-  "explanation": "一两句话说明依据"
-}
-各类型 answers 约定：
-- mcq：单个选项字母，如 ["B"]
-- multiselect：选项字母数组，如 ["A","C"]
-- short / free：字符串数组，每个元素是一段可直接填入的答案
-- code：字符串数组，元素是完整可运行代码（不要 Markdown 围栏，注意缩进）
-- parsons：数字数组，表示给出的代码行按正确顺序排列的行号（从 0 开始，用尽所有行）
-- blank：字符串数组，按空位从左到右`;
+  const ANSWER_SCHEMA = `只输出一个 JSON 对象，不要 Markdown 围栏、不要多余文字：
+{"type":"mcq|multiselect|short|free|code|parsons|blank","answers":[...],"explanation":"可选"}
+- mcq: ["B"]；multiselect: ["A","C"]
+- short/free: 可直接填入的段落数组
+- code: 完整可运行代码（保留缩进）
+- parsons: 行号数组（从 0 开始，按正确顺序）
+- blank: 按空位从左到右`;
 
   /* ============================ 6.5 拟人化输入 ============================ */
   /**
@@ -1996,22 +1991,20 @@
     systemPrompt() {
       const lang = Store.get('language') === 'en' ? 'English' : '中文';
       const outLang = outputLanguageName();
+      const explain = !!Store.get('explain');
       const extra = Store.get('systemPrompt') || '';
+      const batch = !!this._batch;
       return [
-        '你是 JuiceMind 在线学习平台的作业助手，服务对象是正在上课的学生。',
-        '你的目标是给出「可以直接填进页面并被判为正确」的答案，而不是讲解。',
-        '',
-        '做题要求：',
-        '1. 先完整阅读题目与提供的课程上下文，再作答；题干缺失时用上下文推断。',
-        '2. 选择题必须只依据选项内容判断，不要臆造选项；多选要把所有正确项都列出。',
-        '3. 编程题按题目要求与给定的语言/模板写出完整代码，保留必要缩进，不要输出解释性注释以外的多余内容；若题目要求函数名或输入输出格式，严格遵守。',
-        '4. 简答/论述题用与题目相同语言作答，长度贴合题目要求（没要求就 2-4 句）。',
-        '5. 填空题按空位顺序给答案，保持原语言的拼写与大小写。',
-        Store.get('explain') ? `6. explanation 字段用${lang}写，便于学生理解。` : '6. 不要输出 explanation 字段，只给 answers，省 token。',
-        `7. answers 里的答案正文用${outLang}书写（代码本身按题目要求的语言），不要混用其他语言。`,
+        '你是 JuiceMind 课程助手，替上课的学生作答，答案要能直接填进页面。',
+        '规则：',
+        '1. 依据题干、选项与上下文作答；选择题只看选项内容，多选给全。',
+        '2. 代码题按题目要求的函数名与输入输出写完整代码，保留缩进，不要 Markdown 围栏。',
+        '3. 简答 2~4 句，用题目语言；填空按空位顺序、保留原拼写。',
+        '4. answers 用' + outLang + '；' + (explain ? 'explanation 用' + lang + '。' : '不要输出 explanation 字段。'),
+        batch ? '5. 批量作答：返回 {"answers":[{"i":题号, ...}, ...]}，i 从 1 开始，覆盖每一题。' : '',
         '',
         ANSWER_SCHEMA,
-        extra ? '\n补充要求：' + extra : '',
+        extra ? '补充要求：' + extra : '',
       ]
         .filter(Boolean)
         .join('\n');
@@ -2133,6 +2126,63 @@
       const answer = this.normalize(parsed, q);
       this.answers.set(this.cacheKey(q), { answer, at: Date.now() });
       return answer;
+    },
+
+    /** 整页一次请求答完（省掉重复的 system + 上下文） */
+    async solveBatch(questions, scan) {
+      if (!questions.length) return { answers: [], missing: [] };
+      if (!Store.get('apiKey')) throw new Error('请先在「设置」里填写 API Key');
+
+      const allChoice = questions.every((q) => (q.type === 'mcq' || q.type === 'multiselect') && (q.options || []).length >= 2);
+      const budget = Math.max(600, Math.min(Number(Store.get('contextChars')) || 2400, 8000));
+      const ctx = allChoice ? this.contextFor(scan, questions[0]) : this.batchContext(scan, budget);
+
+      const blocks = questions.map((q, i) => this.questionBlock(q, i));
+      const user = [ctx, blocks.join('\n\n'), '\n请一次给出以上 ' + questions.length + ' 题的答案 JSON（i 从 1 开始）。'].join('\n\n');
+
+      this._batch = true;
+      const messages = [
+        { role: 'system', content: this.systemPrompt() },
+        { role: 'user', content: user },
+      ];
+      this._batch = false;
+
+      const cap = questions.reduce((sum, q) => sum + this.maxTokensFor(q), 0);
+      const res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(600, cap)) });
+
+      const parsed = LLM.extractJson(res.text);
+      let list = parsed;
+      if (parsed && !Array.isArray(parsed)) list = parsed.answers || parsed.results || parsed.items || parsed.data;
+      if (!Array.isArray(list)) throw new Error('批量返回不是数组：' + truncate(oneLine(res.text), 160));
+
+      const out = [];
+      const missing = [];
+      questions.forEach((q, idx) => {
+        const one = list.length === questions.length ? list[idx] : list.find((x) => Number(x && (x.i || x.index || x.id)) === idx + 1);
+        if (!one) {
+          missing.push(idx);
+          return;
+        }
+        try {
+          out.push({ idx, answer: this.normalize(one, q) });
+        } catch (e) {
+          missing.push(idx);
+        }
+      });
+      return { answers: out, missing };
+    },
+
+    /** 批量时整页共用的一段上下文（不做单题定位） */
+    batchContext(scan, budget) {
+      const title = (scan.title || PageModel.title() || '').trim();
+      const header = '【页面】' + title + '（类型：' + (scan.kind || PageModel.kind) + '）';
+      let body = (scan.context || '').trim();
+      if (body) body = truncate(body, Math.round(budget * 1.5));
+      if (!body) {
+        const tapped = NetTap.collectText();
+        if (tapped.length) body = truncate(norm(tapped.join('\n\n')), budget);
+      }
+      return body ? header + '\n\n【课程内容（节选）】\n' + body : header;
     },
 
     /** 把模型答复规整成统一结构 */
@@ -3920,7 +3970,7 @@ details.adv .adv-body { padding-top: 6px; }
       ft.className = 'q-ft';
       const bSolve = document.createElement('button');
       bSolve.className = 'btn primary';
-      bSolve.textContent = q.answer ? L('重新生成', 'Regenerate') : L('生成', 'Generate');
+      bSolve.textContent = q.answer || q.status === 'error' ? L('重新生成', 'Regenerate') : L('生成', 'Generate');
       bSolve.addEventListener('click', () => Actions.solveOne(q));
       const bFill = document.createElement('button');
       bFill.className = 'btn';
@@ -4128,6 +4178,7 @@ details.adv .adv-body { padding-top: 6px; }
           <div class="hint" style="margin:4px 0 0">${L('模型名是自由文本，下拉只是常见名字的建议；服务端报「supported model names」时按它给的填。', 'The model name is free text; the dropdown only suggests common names. If the server lists "supported model names", use one of those.')}</div>
         </div>
         <label class="check"><input type="checkbox" data-k="stream" ${cfg.stream ? 'checked' : ''}/> ${L('对话流式输出', 'Stream chat replies')}</label>
+        <label class="check"><input type="checkbox" data-k="batchSolve" ${cfg.batchSolve !== false ? 'checked' : ''}/> ${L('批量答题（一次请求答完整页，省 token）', 'Batch answers (one request per page, fewer tokens)')}</label>
         <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> ${L('隐藏悬浮窗（只用 Alt+J 唤出）', 'Hide panel (Alt+J only)')}</label>
         <label class="check"><input type="checkbox" data-k="anim" ${cfg.anim !== false ? 'checked' : ''}/> ${L('界面动画（关闭后所有过渡停用）', 'UI animations (turn off for instant switches)')}</label>
         <label class="check"><input type="checkbox" data-k="humanType" ${cfg.humanType !== false ? 'checked' : ''}/> ${L('代码题拟人写入（逐字敲、随机节奏、偶发退格）', 'Human-like code typing (char by char, random pace)')}</label>
@@ -4281,6 +4332,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('hidePanel', read('hidePanel'));
       put('anim', read('anim'));
       put('humanType', read('humanType'));
+      put('batchSolve', read('batchSolve'));
       put('typingWpm', Number(read('typingWpm')) || 75);
       put('debug', read('debug'));
       put('explain', read('explain'));
@@ -4389,32 +4441,100 @@ details.adv .adv-body { padding-top: 6px; }
 
     async solveAll() {
       if (App.busy) return;
+      const scan = App.scan;
+      if (!scan || !scan.questions.length) {
+        UI.toast(L('先扫描页面', 'Scan the page first'));
+        return;
+      }
       if (!this.ensureKey()) return;
-      let scan = App.scan;
-      if (!scan || !scan.questions.length) scan = await this.scan(false);
-      if (!scan.questions.length) return;
+
+      const qs = scan.questions;
+      if (Store.get('batchSolve') !== false && qs.length > 1) {
+        try {
+          await this.solveAllBatch(scan);
+          return;
+        } catch (e) {
+          log('批量作答失败，改用逐题', e && e.message);
+          UI.toast(L('批量失败，改用逐题生成', 'Batch failed, falling back to per-question'), 2400);
+        }
+      }
 
       App.busy = true;
       this.setBusy(true);
       UI.setStopVisible(true);
-      const total = scan.questions.length;
-      UI.status(L(`批量生成 0/${total}…`, `Generating 0/${total}…`), 'busy');
+      let ok = 0;
+      let fail = 0;
       try {
-        const res = await Solvers.solveAll(scan.questions, scan, {
-          onBefore: (q, i) => {
-            q.status = 'running';
-            UI.refreshCard(q);
-            UI.status(L(`批量生成 ${i + 1}/${total}…`, `Generating ${i + 1}/${total}…`), 'busy');
-          },
-          onDone: (q) => {
-            UI.refreshCard(q);
-          },
-          onError: (q) => {
-            UI.refreshCard(q);
-          },
+        for (let i = 0; i < qs.length; i++) {
+          if (!App.busy) break;
+          const q = qs[i];
+          UI.status(L(`批量生成 ${i + 1}/${qs.length}…`, `Generating ${i + 1}/${qs.length}…`), 'busy');
+          q.status = 'running';
+          q.error = '';
+          UI.refreshCard(q);
+          try {
+            q.answer = await Solvers.solveOne(q, scan, i);
+            q.status = 'done';
+            ok++;
+          } catch (e) {
+            q.status = 'error';
+            q.error = (e && e.message) || String(e);
+            q.supportedModels = (e && e.supportedModels) || null;
+            fail++;
+          }
+          UI.refreshCard(q);
+        }
+      } finally {
+        App.busy = false;
+        this.setBusy(false);
+        UI.setStopVisible(false);
+        UI.updateUsage();
+      }
+      UI.status(L(`完成：成功 ${ok} · 失败 ${fail}`, `Done: ${ok} ok · ${fail} failed`), fail ? 'err' : undefined);
+      if (ok) UI.toast(L(`已生成 ${ok} 道答案`, `${ok} answer(s) generated`));
+    },
+
+    /** 一次请求答完整页 */
+    async solveAllBatch(scan) {
+      const qs = scan.questions;
+      App.busy = true;
+      this.setBusy(true);
+      UI.setStopVisible(true);
+      qs.forEach((q) => {
+        q.status = 'running';
+        q.error = '';
+        UI.refreshCard(q);
+      });
+      UI.status(L(`批量生成中（${qs.length} 题一次请求）…`, `Generating all ${qs.length} in one request…`), 'busy');
+
+      try {
+        const res = await Solvers.solveBatch(qs, scan);
+        const byIdx = new Map(res.answers.map((a) => [a.idx, a.answer]));
+        let ok = 0;
+        const failed = [];
+        qs.forEach((q, i) => {
+          const a = byIdx.get(i);
+          if (a) {
+            q.answer = a;
+            q.status = 'done';
+            q.error = '';
+            ok++;
+          } else {
+            q.status = 'error';
+            q.error = L('这次批量没有返回这道题，点卡片上的「重新生成」单独重试', 'Not returned by the batch — hit Regenerate on this card');
+            failed.push(i + 1);
+          }
+          UI.refreshCard(q);
         });
-        UI.status(L(`完成：成功 ${res.ok} · 失败 ${res.fail}`, `Done: ${res.ok} ok · ${res.fail} failed`), res.fail ? 'err' : undefined);
-        if (res.ok) UI.toast(L(`已生成 ${res.ok} 道答案`, `${res.ok} answer(s) generated`));
+        UI.updateUsage();
+        if (failed.length) {
+          UI.status(L(`完成：${ok} 题成功，${failed.length} 题未返回`, `Done: ${ok} ok, ${failed.length} missing`), 'err');
+          UI.toast(L(`${failed.length} 题未返回，可点卡片重新生成`, `${failed.length} missing — regenerate on the card`), 3600);
+        } else {
+          UI.status(L(`完成：${ok} 题（1 次请求）`, `Done: ${ok} answer(s) in one request`));
+          UI.toast(L(`已生成 ${ok} 道答案（1 次请求）`, `${ok} answer(s) in one request`));
+        }
+        return { ok, failed };
       } finally {
         App.busy = false;
         this.setBusy(false);

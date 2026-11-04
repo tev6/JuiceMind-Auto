@@ -564,7 +564,7 @@ const doc = window.document;
   J.Store.set({ explain: false });
   ok('关闭解析时提示词要求不输出 explanation', /不要输出 explanation/.test(J.Solvers.systemPrompt()));
   J.Store.set({ explain: true });
-  ok('打开解析时提示词要求输出 explanation', /explanation 字段/.test(J.Solvers.systemPrompt()) && !/不要输出 explanation/.test(J.Solvers.systemPrompt()));
+  ok('打开解析时提示词要求输出 explanation', /explanation 用|explanation 字段/.test(J.Solvers.systemPrompt()) && !/不要输出 explanation/.test(J.Solvers.systemPrompt()));
   J.Store.set({ explain: false });
 
   // maxTokensFor 按题型
@@ -577,6 +577,53 @@ const doc = window.document;
     const body = cap[cap.length - 1];
     ok('简答题上下文受预算约束', body.messages[1].content.length < 3000, body.messages[1].content.length);
   }
+
+
+  console.log('\n【23】批量作答（A）与精简提示词（C）');
+  J.Store.set({ apiKey: 'sk-test', model: 'm', baseUrl: 'https://api.openai.com/v1', stream: false, jsonMode: true, humanType: false, explain: false, batchSolve: true });
+  const scan23 = await J.Actions.scan();
+  const n23 = scan23.questions.length;
+  const cap23 = [];
+  window.fetch = async (u, init) => {
+    cap23.push(JSON.parse((init && init.body) || '{}'));
+    const answers = scan23.questions.map((q, i) => ({ i: i + 1, type: q.type, answers: q.type === 'code' ? ['print(1)'] : ['A'] }));
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ answers }) } }], usage: { total_tokens: 200 } }), { status: 200 });
+  };
+
+  await J.Actions.solveAll();
+  ok('批量：整页只发 1 次请求', cap23.length === 1, cap23.length);
+  const batchBody = cap23[0];
+  ok('批量：提示词要求返回 answers 数组', /"answers":\[\{"i"/.test(batchBody.messages[0].content) || /i 从 1 开始/.test(batchBody.messages[0].content));
+  ok('批量：题干块覆盖全部题目', (batchBody.messages[1].content.match(/【第 \d+ 题】/g) || []).length === n23, n23);
+  ok('批量：所有题目都拿到了答案', scan23.questions.every((q) => q.answer && q.status === 'done'), scan23.questions.map((q) => q.status));
+
+  // 部分缺失 → 标记失败，且卡片有「重新生成」
+  const scan24 = await J.Actions.scan();
+  let n24 = scan24.questions.length;
+  window.fetch = async () => {
+    const answers = [{ i: 1, type: scan24.questions[0].type, answers: ['A'] }]; // 只回第 1 题
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ answers }) } }] }), { status: 200 });
+  };
+  const r24 = await J.Actions.solveAllBatch(scan24);
+  ok('批量缺失：第 1 题成功', scan24.questions[0].status === 'done');
+  ok('批量缺失：其余题为失败态', scan24.questions.slice(1).every((q) => q.status === 'error'));
+  ok('批量缺失：失败原因提示可重新生成', /重新生成/.test(scan24.questions[1].error || ''));
+  const cardFail = host.shadowRoot.querySelector('[data-qid="' + scan24.questions[1].id + '"] .q-ft button');
+  const btns = host.shadowRoot.querySelectorAll('[data-qid="' + scan24.questions[1].id + '"] .q-ft button');
+  ok('批量缺失：卡片按钮变成「重新生成」', Array.from(btns).some((b) => /重新生成|Regenerate/.test(b.textContent)), Array.from(btns).map((b) => b.textContent));
+
+  // 关闭批量 → 逐题请求
+  J.Store.set({ batchSolve: false });
+  const scan25 = await J.Actions.scan();
+  cap23.length = 0;
+  window.fetch = async (u, init) => { cap23.push(JSON.parse((init && init.body) || '{}')); return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ type: 'mcq', answers: ['A'] }) } }] }), { status: 200 }); };
+  await J.Actions.solveAll();
+  ok('关闭批量后按题请求', cap23.length === scan25.questions.length, { calls: cap23.length, n: scan25.questions.length });
+  J.Store.set({ batchSolve: true });
+
+  // C：system prompt 体积
+  const sysLen = J.Solvers.systemPrompt().length;
+  ok('精简后的 system prompt 明显变短', sysLen < 520, sysLen);
 
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);

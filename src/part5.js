@@ -1261,7 +1261,7 @@ details.adv .adv-body { padding-top: 6px; }
       ft.className = 'q-ft';
       const bSolve = document.createElement('button');
       bSolve.className = 'btn primary';
-      bSolve.textContent = q.answer ? L('重新生成', 'Regenerate') : L('生成', 'Generate');
+      bSolve.textContent = q.answer || q.status === 'error' ? L('重新生成', 'Regenerate') : L('生成', 'Generate');
       bSolve.addEventListener('click', () => Actions.solveOne(q));
       const bFill = document.createElement('button');
       bFill.className = 'btn';
@@ -1469,6 +1469,7 @@ details.adv .adv-body { padding-top: 6px; }
           <div class="hint" style="margin:4px 0 0">${L('模型名是自由文本，下拉只是常见名字的建议；服务端报「supported model names」时按它给的填。', 'The model name is free text; the dropdown only suggests common names. If the server lists "supported model names", use one of those.')}</div>
         </div>
         <label class="check"><input type="checkbox" data-k="stream" ${cfg.stream ? 'checked' : ''}/> ${L('对话流式输出', 'Stream chat replies')}</label>
+        <label class="check"><input type="checkbox" data-k="batchSolve" ${cfg.batchSolve !== false ? 'checked' : ''}/> ${L('批量答题（一次请求答完整页，省 token）', 'Batch answers (one request per page, fewer tokens)')}</label>
         <label class="check"><input type="checkbox" data-k="hidePanel" ${cfg.hidePanel ? 'checked' : ''}/> ${L('隐藏悬浮窗（只用 Alt+J 唤出）', 'Hide panel (Alt+J only)')}</label>
         <label class="check"><input type="checkbox" data-k="anim" ${cfg.anim !== false ? 'checked' : ''}/> ${L('界面动画（关闭后所有过渡停用）', 'UI animations (turn off for instant switches)')}</label>
         <label class="check"><input type="checkbox" data-k="humanType" ${cfg.humanType !== false ? 'checked' : ''}/> ${L('代码题拟人写入（逐字敲、随机节奏、偶发退格）', 'Human-like code typing (char by char, random pace)')}</label>
@@ -1622,6 +1623,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('hidePanel', read('hidePanel'));
       put('anim', read('anim'));
       put('humanType', read('humanType'));
+      put('batchSolve', read('batchSolve'));
       put('typingWpm', Number(read('typingWpm')) || 75);
       put('debug', read('debug'));
       put('explain', read('explain'));

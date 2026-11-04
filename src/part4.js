@@ -1,19 +1,13 @@
 
   /* ============================ 7. 题型求解器 ============================ */
 
-  const ANSWER_SCHEMA = `只输出一个 JSON 对象（不要 Markdown 围栏、不要多余文字），结构：
-{
-  "type": "mcq | multiselect | short | free | code | parsons | blank",
-  "answers": [...],
-  "explanation": "一两句话说明依据"
-}
-各类型 answers 约定：
-- mcq：单个选项字母，如 ["B"]
-- multiselect：选项字母数组，如 ["A","C"]
-- short / free：字符串数组，每个元素是一段可直接填入的答案
-- code：字符串数组，元素是完整可运行代码（不要 Markdown 围栏，注意缩进）
-- parsons：数字数组，表示给出的代码行按正确顺序排列的行号（从 0 开始，用尽所有行）
-- blank：字符串数组，按空位从左到右`;
+  const ANSWER_SCHEMA = `只输出一个 JSON 对象，不要 Markdown 围栏、不要多余文字：
+{"type":"mcq|multiselect|short|free|code|parsons|blank","answers":[...],"explanation":"可选"}
+- mcq: ["B"]；multiselect: ["A","C"]
+- short/free: 可直接填入的段落数组
+- code: 完整可运行代码（保留缩进）
+- parsons: 行号数组（从 0 开始，按正确顺序）
+- blank: 按空位从左到右`;
 
   /* ============================ 6.5 拟人化输入 ============================ */
   /**
@@ -211,22 +205,20 @@
     systemPrompt() {
       const lang = Store.get('language') === 'en' ? 'English' : '中文';
       const outLang = outputLanguageName();
+      const explain = !!Store.get('explain');
       const extra = Store.get('systemPrompt') || '';
+      const batch = !!this._batch;
       return [
-        '你是 JuiceMind 在线学习平台的作业助手，服务对象是正在上课的学生。',
-        '你的目标是给出「可以直接填进页面并被判为正确」的答案，而不是讲解。',
-        '',
-        '做题要求：',
-        '1. 先完整阅读题目与提供的课程上下文，再作答；题干缺失时用上下文推断。',
-        '2. 选择题必须只依据选项内容判断，不要臆造选项；多选要把所有正确项都列出。',
-        '3. 编程题按题目要求与给定的语言/模板写出完整代码，保留必要缩进，不要输出解释性注释以外的多余内容；若题目要求函数名或输入输出格式，严格遵守。',
-        '4. 简答/论述题用与题目相同语言作答，长度贴合题目要求（没要求就 2-4 句）。',
-        '5. 填空题按空位顺序给答案，保持原语言的拼写与大小写。',
-        Store.get('explain') ? `6. explanation 字段用${lang}写，便于学生理解。` : '6. 不要输出 explanation 字段，只给 answers，省 token。',
-        `7. answers 里的答案正文用${outLang}书写（代码本身按题目要求的语言），不要混用其他语言。`,
+        '你是 JuiceMind 课程助手，替上课的学生作答，答案要能直接填进页面。',
+        '规则：',
+        '1. 依据题干、选项与上下文作答；选择题只看选项内容，多选给全。',
+        '2. 代码题按题目要求的函数名与输入输出写完整代码，保留缩进，不要 Markdown 围栏。',
+        '3. 简答 2~4 句，用题目语言；填空按空位顺序、保留原拼写。',
+        '4. answers 用' + outLang + '；' + (explain ? 'explanation 用' + lang + '。' : '不要输出 explanation 字段。'),
+        batch ? '5. 批量作答：返回 {"answers":[{"i":题号, ...}, ...]}，i 从 1 开始，覆盖每一题。' : '',
         '',
         ANSWER_SCHEMA,
-        extra ? '\n补充要求：' + extra : '',
+        extra ? '补充要求：' + extra : '',
       ]
         .filter(Boolean)
         .join('\n');
@@ -348,6 +340,63 @@
       const answer = this.normalize(parsed, q);
       this.answers.set(this.cacheKey(q), { answer, at: Date.now() });
       return answer;
+    },
+
+    /** 整页一次请求答完（省掉重复的 system + 上下文） */
+    async solveBatch(questions, scan) {
+      if (!questions.length) return { answers: [], missing: [] };
+      if (!Store.get('apiKey')) throw new Error('请先在「设置」里填写 API Key');
+
+      const allChoice = questions.every((q) => (q.type === 'mcq' || q.type === 'multiselect') && (q.options || []).length >= 2);
+      const budget = Math.max(600, Math.min(Number(Store.get('contextChars')) || 2400, 8000));
+      const ctx = allChoice ? this.contextFor(scan, questions[0]) : this.batchContext(scan, budget);
+
+      const blocks = questions.map((q, i) => this.questionBlock(q, i));
+      const user = [ctx, blocks.join('\n\n'), '\n请一次给出以上 ' + questions.length + ' 题的答案 JSON（i 从 1 开始）。'].join('\n\n');
+
+      this._batch = true;
+      const messages = [
+        { role: 'system', content: this.systemPrompt() },
+        { role: 'user', content: user },
+      ];
+      this._batch = false;
+
+      const cap = questions.reduce((sum, q) => sum + this.maxTokensFor(q), 0);
+      const res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(600, cap)) });
+
+      const parsed = LLM.extractJson(res.text);
+      let list = parsed;
+      if (parsed && !Array.isArray(parsed)) list = parsed.answers || parsed.results || parsed.items || parsed.data;
+      if (!Array.isArray(list)) throw new Error('批量返回不是数组：' + truncate(oneLine(res.text), 160));
+
+      const out = [];
+      const missing = [];
+      questions.forEach((q, idx) => {
+        const one = list.length === questions.length ? list[idx] : list.find((x) => Number(x && (x.i || x.index || x.id)) === idx + 1);
+        if (!one) {
+          missing.push(idx);
+          return;
+        }
+        try {
+          out.push({ idx, answer: this.normalize(one, q) });
+        } catch (e) {
+          missing.push(idx);
+        }
+      });
+      return { answers: out, missing };
+    },
+
+    /** 批量时整页共用的一段上下文（不做单题定位） */
+    batchContext(scan, budget) {
+      const title = (scan.title || PageModel.title() || '').trim();
+      const header = '【页面】' + title + '（类型：' + (scan.kind || PageModel.kind) + '）';
+      let body = (scan.context || '').trim();
+      if (body) body = truncate(body, Math.round(budget * 1.5));
+      if (!body) {
+        const tapped = NetTap.collectText();
+        if (tapped.length) body = truncate(norm(tapped.join('\n\n')), budget);
+      }
+      return body ? header + '\n\n【课程内容（节选）】\n' + body : header;
     },
 
     /** 把模型答复规整成统一结构 */

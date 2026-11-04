@@ -94,32 +94,100 @@
 
     async solveAll() {
       if (App.busy) return;
+      const scan = App.scan;
+      if (!scan || !scan.questions.length) {
+        UI.toast(L('先扫描页面', 'Scan the page first'));
+        return;
+      }
       if (!this.ensureKey()) return;
-      let scan = App.scan;
-      if (!scan || !scan.questions.length) scan = await this.scan(false);
-      if (!scan.questions.length) return;
+
+      const qs = scan.questions;
+      if (Store.get('batchSolve') !== false && qs.length > 1) {
+        try {
+          await this.solveAllBatch(scan);
+          return;
+        } catch (e) {
+          log('批量作答失败，改用逐题', e && e.message);
+          UI.toast(L('批量失败，改用逐题生成', 'Batch failed, falling back to per-question'), 2400);
+        }
+      }
 
       App.busy = true;
       this.setBusy(true);
       UI.setStopVisible(true);
-      const total = scan.questions.length;
-      UI.status(L(`批量生成 0/${total}…`, `Generating 0/${total}…`), 'busy');
+      let ok = 0;
+      let fail = 0;
       try {
-        const res = await Solvers.solveAll(scan.questions, scan, {
-          onBefore: (q, i) => {
-            q.status = 'running';
-            UI.refreshCard(q);
-            UI.status(L(`批量生成 ${i + 1}/${total}…`, `Generating ${i + 1}/${total}…`), 'busy');
-          },
-          onDone: (q) => {
-            UI.refreshCard(q);
-          },
-          onError: (q) => {
-            UI.refreshCard(q);
-          },
+        for (let i = 0; i < qs.length; i++) {
+          if (!App.busy) break;
+          const q = qs[i];
+          UI.status(L(`批量生成 ${i + 1}/${qs.length}…`, `Generating ${i + 1}/${qs.length}…`), 'busy');
+          q.status = 'running';
+          q.error = '';
+          UI.refreshCard(q);
+          try {
+            q.answer = await Solvers.solveOne(q, scan, i);
+            q.status = 'done';
+            ok++;
+          } catch (e) {
+            q.status = 'error';
+            q.error = (e && e.message) || String(e);
+            q.supportedModels = (e && e.supportedModels) || null;
+            fail++;
+          }
+          UI.refreshCard(q);
+        }
+      } finally {
+        App.busy = false;
+        this.setBusy(false);
+        UI.setStopVisible(false);
+        UI.updateUsage();
+      }
+      UI.status(L(`完成：成功 ${ok} · 失败 ${fail}`, `Done: ${ok} ok · ${fail} failed`), fail ? 'err' : undefined);
+      if (ok) UI.toast(L(`已生成 ${ok} 道答案`, `${ok} answer(s) generated`));
+    },
+
+    /** 一次请求答完整页 */
+    async solveAllBatch(scan) {
+      const qs = scan.questions;
+      App.busy = true;
+      this.setBusy(true);
+      UI.setStopVisible(true);
+      qs.forEach((q) => {
+        q.status = 'running';
+        q.error = '';
+        UI.refreshCard(q);
+      });
+      UI.status(L(`批量生成中（${qs.length} 题一次请求）…`, `Generating all ${qs.length} in one request…`), 'busy');
+
+      try {
+        const res = await Solvers.solveBatch(qs, scan);
+        const byIdx = new Map(res.answers.map((a) => [a.idx, a.answer]));
+        let ok = 0;
+        const failed = [];
+        qs.forEach((q, i) => {
+          const a = byIdx.get(i);
+          if (a) {
+            q.answer = a;
+            q.status = 'done';
+            q.error = '';
+            ok++;
+          } else {
+            q.status = 'error';
+            q.error = L('这次批量没有返回这道题，点卡片上的「重新生成」单独重试', 'Not returned by the batch — hit Regenerate on this card');
+            failed.push(i + 1);
+          }
+          UI.refreshCard(q);
         });
-        UI.status(L(`完成：成功 ${res.ok} · 失败 ${res.fail}`, `Done: ${res.ok} ok · ${res.fail} failed`), res.fail ? 'err' : undefined);
-        if (res.ok) UI.toast(L(`已生成 ${res.ok} 道答案`, `${res.ok} answer(s) generated`));
+        UI.updateUsage();
+        if (failed.length) {
+          UI.status(L(`完成：${ok} 题成功，${failed.length} 题未返回`, `Done: ${ok} ok, ${failed.length} missing`), 'err');
+          UI.toast(L(`${failed.length} 题未返回，可点卡片重新生成`, `${failed.length} missing — regenerate on the card`), 3600);
+        } else {
+          UI.status(L(`完成：${ok} 题（1 次请求）`, `Done: ${ok} answer(s) in one request`));
+          UI.toast(L(`已生成 ${ok} 道答案（1 次请求）`, `${ok} answer(s) in one request`));
+        }
+        return { ok, failed };
       } finally {
         App.busy = false;
         this.setBusy(false);
