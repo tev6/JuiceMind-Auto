@@ -536,6 +536,48 @@ const doc = window.document;
     ok('再点一次收起', readExpanded() === before, { again: readExpanded(), before });
   }
 
+
+  console.log('\n【22】token 压缩（上下文裁剪 + 输出压缩）');
+  J.Store.set({ apiKey: 'sk-test', model: 'm', baseUrl: 'https://api.openai.com/v1', stream: false, jsonMode: true, humanType: false, explain: false, contextChars: 2400 });
+  const scan22 = await J.Actions.scan();
+  const cap = [];
+  window.fetch = async (u, init) => {
+    cap.push(JSON.parse((init && init.body) || '{}'));
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ type: 'mcq', answers: ['A'] }) } }], usage: { total_tokens: 60 } }), { status: 200 });
+  };
+
+  const mcqQ = scan22.questions.find((q) => q.type === 'mcq');
+  await J.Solvers.solveOne(mcqQ, scan22, 0);
+  const mcqBody = cap[cap.length - 1];
+  ok('选择题不再附整页正文', !/课程内容/.test(mcqBody.messages[1].content), mcqBody.messages[1].content.slice(0, 60));
+  ok('选择题 max_tokens 收紧到 120', mcqBody.max_tokens === 120, mcqBody.max_tokens);
+
+  // 长上下文会被截到预算附近
+  const bigCtx = '开头无关内容。'.repeat(200) + '这是目标题干之前的说明。' + '这里是一道简答题的目标题干：解释循环。' + '结尾无关内容。'.repeat(200);
+  const fakeScan = Object.assign({}, scan22, { context: bigCtx });
+  const shortQ = scan22.questions.find((q) => q.type === 'short' || q.type === 'free') || Object.assign({}, mcqQ, { type: 'short' });
+  const ctxTrimmed = J.Solvers.contextFor(fakeScan, shortQ);
+  ok('长正文被截到预算附近', ctxTrimmed.length <= 2480 && ctxTrimmed.length < bigCtx.length - 100, { len: ctxTrimmed.length, raw: bigCtx.length });
+  ok('截断保留题干附近内容', /循环/.test(ctxTrimmed));
+
+  // 解析开关
+  J.Store.set({ explain: false });
+  ok('关闭解析时提示词要求不输出 explanation', /不要输出 explanation/.test(J.Solvers.systemPrompt()));
+  J.Store.set({ explain: true });
+  ok('打开解析时提示词要求输出 explanation', /explanation 字段/.test(J.Solvers.systemPrompt()) && !/不要输出 explanation/.test(J.Solvers.systemPrompt()));
+  J.Store.set({ explain: false });
+
+  // maxTokensFor 按题型
+  const caps = ['mcq', 'multiselect', 'blank', 'short', 'code'].map((t) => J.Solvers.maxTokensFor({ type: t }));
+  ok('各题型输出上限递减合理', caps[0] <= 120 && caps[1] <= 160 && caps[2] <= 320 && caps[3] <= 600 && caps[4] <= 1400, caps);
+
+  // 关掉拟人写入，测一次短答题的整体用户消息体积
+  if (shortQ) {
+    await J.Solvers.solveOne(shortQ, scan22, 0);
+    const body = cap[cap.length - 1];
+    ok('简答题上下文受预算约束', body.messages[1].content.length < 3000, body.messages[1].content.length);
+  }
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {

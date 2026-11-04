@@ -1483,6 +1483,7 @@ details.adv .adv-body { padding-top: 6px; }
           <div class="adv-body">
             <label class="check"><input type="checkbox" data-k="jsonMode" ${cfg.jsonMode ? 'checked' : ''}/> ${L('JSON 输出模式（更稳的答案解析）', 'JSON output mode (more reliable parsing)')}</label>
             <label class="check"><input type="checkbox" data-k="debug" ${cfg.debug ? 'checked' : ''}/> ${L('控制台调试日志', 'Console debug logs')}</label>
+            <label class="check"><input type="checkbox" data-k="explain" ${cfg.explain ? 'checked' : ''}/> ${L('生成解析（更耗 token）', 'Generate explanations (costs more tokens)')}</label>
             <label class="check"><input type="checkbox" data-k="outputLangCustom" ${cfg.outputLangCustom ? 'checked' : ''}/> ${L('独立设置大模型输出语言', 'Set model output language separately')}</label>
             <div class="field check sub ${cfg.outputLangCustom ? '' : 'disabled'}" data-ref="outlang-field">
               <label>${L('大模型输出语言', 'Model output language')}</label>
@@ -1623,6 +1624,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('humanType', read('humanType'));
       put('typingWpm', Number(read('typingWpm')) || 75);
       put('debug', read('debug'));
+      put('explain', read('explain'));
       put('systemPrompt', read('systemPrompt'));
       Store.set(patch);
       this.applyAnim();

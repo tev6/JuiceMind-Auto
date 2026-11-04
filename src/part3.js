@@ -170,7 +170,7 @@
         model: cfg.model,
         messages,
         temperature: Number(cfg.temperature),
-        max_tokens: Number(cfg.maxTokens),
+        max_tokens: Math.max(64, Math.min(Number(opts.maxTokens) || Number(cfg.maxTokens), Number(cfg.maxTokens) || 4096)),
         stream: !!opts.stream,
       };
       if (wantJson) body.response_format = { type: 'json_object' };

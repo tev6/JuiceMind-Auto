@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.9.1
+// @version      1.10.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.9.1';
+  const VERSION = '1.10.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -211,6 +211,7 @@
     temperature: 0.2,
     maxTokens: 2048,
     extraHeaders: '',
+    explain: false, // 是否让模型返回解析（更耗 token，默认关）
     jsonMode: true, // 请求 response_format=json_object，失败自动降级
     language: 'zh', // 旧字段：解释语言，保留兼容（新逻辑见 outputLangCustom）
     uiLang: 'zh', // 界面语言：右上角一键切换，同时决定模型输出语言（默认中文）
@@ -226,7 +227,7 @@
     typingWpm: 75, // 拟人写入的平均速度（WPM，15~120）
     debug: false,
     systemPrompt: '', // 自定义追加提示词
-    contextChars: 6000, // 送给模型的页面上下文上限
+    contextChars: 2400, // 送给模型的页面上下文上限（按题截取，不再整页发送）
   };
 
   const STORE_KEY = 'jm_ai_config_v1';

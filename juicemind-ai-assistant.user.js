@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.9.1
+// @version      1.10.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       you
 // @match        https://play.juicemind.com/*
@@ -38,7 +38,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.9.1';
+  const VERSION = '1.10.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -211,6 +211,7 @@
     temperature: 0.2,
     maxTokens: 2048,
     extraHeaders: '',
+    explain: false, // 是否让模型返回解析（更耗 token，默认关）
     jsonMode: true, // 请求 response_format=json_object，失败自动降级
     language: 'zh', // 旧字段：解释语言，保留兼容（新逻辑见 outputLangCustom）
     uiLang: 'zh', // 界面语言：右上角一键切换，同时决定模型输出语言（默认中文）
@@ -226,7 +227,7 @@
     typingWpm: 75, // 拟人写入的平均速度（WPM，15~120）
     debug: false,
     systemPrompt: '', // 自定义追加提示词
-    contextChars: 6000, // 送给模型的页面上下文上限
+    contextChars: 2400, // 送给模型的页面上下文上限（按题截取，不再整页发送）
   };
 
   const STORE_KEY = 'jm_ai_config_v1';
@@ -1461,7 +1462,7 @@
         model: cfg.model,
         messages,
         temperature: Number(cfg.temperature),
-        max_tokens: Number(cfg.maxTokens),
+        max_tokens: Math.max(64, Math.min(Number(opts.maxTokens) || Number(cfg.maxTokens), Number(cfg.maxTokens) || 4096)),
         stream: !!opts.stream,
       };
       if (wantJson) body.response_format = { type: 'json_object' };
@@ -2006,7 +2007,7 @@
         '3. 编程题按题目要求与给定的语言/模板写出完整代码，保留必要缩进，不要输出解释性注释以外的多余内容；若题目要求函数名或输入输出格式，严格遵守。',
         '4. 简答/论述题用与题目相同语言作答，长度贴合题目要求（没要求就 2-4 句）。',
         '5. 填空题按空位顺序给答案，保持原语言的拼写与大小写。',
-        `6. explanation 字段用${lang}写，便于学生理解。`,
+        Store.get('explain') ? `6. explanation 字段用${lang}写，便于学生理解。` : '6. 不要输出 explanation 字段，只给 answers，省 token。',
         `7. answers 里的答案正文用${outLang}书写（代码本身按题目要求的语言），不要混用其他语言。`,
         '',
         ANSWER_SCHEMA,
@@ -2016,18 +2017,46 @@
         .join('\n');
     },
 
-    /** 页面上下文（教程正文、条目标题） */
-    contextBlock(scan) {
-      const parts = [];
-      parts.push('【页面】' + (scan.title || PageModel.title()) + '（类型：' + (scan.kind || PageModel.kind) + '）');
-      const ctx = (scan.context || '').trim();
-      if (ctx) parts.push('【课程内容 / 页面正文（节选）】\n' + ctx);
-      const tapped = NetTap.collectText();
-      if (tapped.length) {
-        const merged = truncate(norm(tapped.join('\n\n')), 3000);
-        if (merged && !ctx.includes(merged.slice(0, 80))) parts.push('【接口里的课程原文（节选）】\n' + merged);
+    /** 页面上下文：按题目截取，能省则省（token 主要花在这里） */
+    contextFor(scan, q) {
+      const title = (scan.title || PageModel.title() || '').trim();
+      const kind = scan.kind || PageModel.kind;
+      const header = '【页面】' + title + '（类型：' + kind + '）';
+
+      // 选择题的选项本身就是全部信息，不需要再附正文
+      const selfContained = (q.type === 'mcq' || q.type === 'multiselect') && (q.options || []).length >= 2;
+      if (selfContained) return header;
+
+      const budget = Math.max(600, Math.min(Number(Store.get('contextChars')) || 2400, 8000));
+      let body = (scan.context || '').trim();
+      if (body) body = this.sliceAround(body, q.prompt, budget);
+
+      // 正文不足时才去翻接口里抓到的原文
+      if (!body || body.length < budget * 0.5) {
+        const tapped = NetTap.collectText();
+        if (tapped.length) {
+          const merged = truncate(norm(tapped.join('\n\n')), budget);
+          if (merged && (!body || !body.includes(merged.slice(0, 60)))) body = merged;
+        }
       }
-      return parts.join('\n\n');
+      return body ? header + '\n\n【课程内容（节选，仅保留与本题相关的部分）】\n' + body : header;
+    },
+
+    /** 在长正文里截出题干附近的一段 */
+    sliceAround(ctx, prompt, budget) {
+      if (!ctx) return '';
+      if (ctx.length <= budget) return ctx;
+      const p = String(prompt || '').replace(/\s+/g, ' ').trim();
+      let at = -1;
+      if (p) {
+        at = ctx.indexOf(p.slice(0, Math.min(24, p.length)));
+        if (at < 0 && p.length > 40) at = ctx.indexOf(p.slice(20, 50));
+      }
+      if (at < 0) return truncate(ctx, budget);
+      const before = Math.round(budget * 0.35);
+      const from = Math.max(0, at - before);
+      const to = Math.min(ctx.length, from + budget);
+      return (from > 0 ? '…' : '') + ctx.slice(from, to) + (to < ctx.length ? '…' : '');
     },
 
     /** 单题描述 */
@@ -2066,6 +2095,21 @@
       return lines.join('\n');
     },
 
+    /** 按题型限制输出长度：选择题根本不需要几百 token */
+    maxTokensFor(q) {
+      const cap = Number(Store.get('maxTokens')) || 2048;
+      const byType = {
+        mcq: 120,
+        multiselect: 160,
+        blank: 320,
+        short: 600,
+        free: 700,
+        code: 1400,
+        parsons: 600,
+      };
+      return Math.min(cap, byType[q.type] || 800);
+    },
+
     cacheKey(q) {
       const ctx = q.prompt + '|' + (q.options || []).map((o) => o.raw).join('|');
       let h = 0;
@@ -2080,10 +2124,10 @@
         { role: 'system', content: this.systemPrompt() },
         {
           role: 'user',
-          content: [this.contextBlock(scan), this.questionBlock(q, idx), '\n请给出这一题的答案 JSON。'].join('\n\n'),
+          content: [this.contextFor(scan, q), this.questionBlock(q, idx), '\n请给出这一题的答案 JSON。'].join('\n\n'),
         },
       ];
-      const res = await LLM.chat({ messages, stream: false, json: true });
+      const res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q) });
       const parsed = LLM.extractJson(res.text);
       if (!parsed) throw new Error('模型未返回可解析的 JSON：' + truncate(oneLine(res.text), 160));
       const answer = this.normalize(parsed, q);
@@ -4098,6 +4142,7 @@ details.adv .adv-body { padding-top: 6px; }
           <div class="adv-body">
             <label class="check"><input type="checkbox" data-k="jsonMode" ${cfg.jsonMode ? 'checked' : ''}/> ${L('JSON 输出模式（更稳的答案解析）', 'JSON output mode (more reliable parsing)')}</label>
             <label class="check"><input type="checkbox" data-k="debug" ${cfg.debug ? 'checked' : ''}/> ${L('控制台调试日志', 'Console debug logs')}</label>
+            <label class="check"><input type="checkbox" data-k="explain" ${cfg.explain ? 'checked' : ''}/> ${L('生成解析（更耗 token）', 'Generate explanations (costs more tokens)')}</label>
             <label class="check"><input type="checkbox" data-k="outputLangCustom" ${cfg.outputLangCustom ? 'checked' : ''}/> ${L('独立设置大模型输出语言', 'Set model output language separately')}</label>
             <div class="field check sub ${cfg.outputLangCustom ? '' : 'disabled'}" data-ref="outlang-field">
               <label>${L('大模型输出语言', 'Model output language')}</label>
@@ -4238,6 +4283,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('humanType', read('humanType'));
       put('typingWpm', Number(read('typingWpm')) || 75);
       put('debug', read('debug'));
+      put('explain', read('explain'));
       put('systemPrompt', read('systemPrompt'));
       Store.set(patch);
       this.applyAnim();
