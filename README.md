@@ -1,112 +1,112 @@
-[English](README.en.md) | 中文
+[中文](README.zh-CN.md) | English
 
-# JuiceMind AI 答题助手
+# JuiceMind AI Answering Assistant
 
-给 [play.juicemind.com](https://play.juicemind.com) 用的 Tampermonkey 脚本：识别页面上的题目，调用大模型 API 生成答案，再全流程、全自动地填回页面并提交。
+A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it finds the questions on the page, calls a large language model API to generate answers, then fills them back in and submits everything automatically.
 
-## 安装
+## Install
 
-1. 浏览器装 [Tampermonkey](https://www.tampermonkey.net/)（Chrome / Edge / Firefox）。
-2. 点以下链接安装脚本，Tampermonkey 弹出安装页后点「安装」：
+1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser (Chrome / Edge / Firefox).
+2. Click the link below. Tampermonkey opens an install page — press "Install":
 
    **https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js**
 
-3. 打开JuiceMind的任意课程页，右侧会出现面板。没看到就按 `Alt + J`。
+3. Open any JuiceMind lesson page. The panel shows up on the right side. If you don't see it, press `Alt + J`.
 
-> 脚本只在应用端域名 `play.juicemind.com` 与 `classes.juicemind.com` 运行；营销站 `juicemind.com` 只有介绍页，不会注入面板。
+> The script only runs on the app domains `play.juicemind.com` and `classes.juicemind.com`. The marketing site `juicemind.com` has nothing but an intro page, so no panel is injected there.
 
-## 配置（约 30 秒）
+## Configure (about 30 seconds)
 
-点面板里的「设置」：
+Open "Settings" in the panel:
 
-| 填什么 | 例如 |
+| What to fill in | Example |
 | --- | --- |
-| API Base URL | `https://api.deepseek.com/v1`（也可先选「服务商预设」自动填） |
-| API Key | `sk-...`（你自己的 key） |
-| 模型 | 如 `deepseek-flash` |
+| API Base URL | `https://api.deepseek.com/v1` (or pick a "Provider preset" and it fills itself) |
+| API Key | `sk-...` (your own key) |
+| Model | e.g. `deepseek-flash` |
 
-点「保存」→「测试连接」，看到成功就能用了。
+Click "Save", then "Test connection". Once it says success, you're good.
 
-> 支持 OpenAI 兼容接口：OpenAI / DeepSeek / Moonshot / OpenRouter / 本地 Ollama。
+> Any OpenAI-compatible API works: OpenAI / DeepSeek / Moonshot / OpenRouter / local Ollama.
 
-## 使用
+## Usage
 
-| 场景 | 使用方法 |
+| Scenario | How |
 | --- | --- |
-| **一键完成整页** | 点「**一键完成本页**」：检测 → 生成 → 填入 → 提交，逐题走同一套流程 |
-| 解多题 | `扫描页面` → `生成全部` → `填入全部` |
-| 解单题 | `扫描页面` → 该题卡片上点 `生成` → `填入` |
-| 纯教程页 | 切到「总结」一键生成速学笔记，或「对话」中问某个知识点 |
+| **Complete the whole page** | Click **"Complete this page"**: detect → generate → fill in → submit, the same flow for every question |
+| Solve many questions | `Scan page` → `Generate all` → `Fill all` |
+| Solve one question | `Scan page` → on that question's card click `Generate` → `Fill` |
+| Tutorial-only page | Switch to "Summary" for quick-study notes in one click, or ask about a concept in "Chat" |
 
-**一键完成本页**（v1.12.0 起）：答题页上方的整行按钮。每道题依次做四件事——填入答案、点提交、等结果、关弹窗。
-**注意**：你调用的AI也可能犯错，虽然答案提交后站点就改不了了，但是如果答错脚本还会返回结果
+**Complete this page** (since v1.12.0): the full-width button at the top of the quiz page. For every question it does four things — fill in the answer, click submit, wait for the result, close the popup.
+**Note**: the AI you call can be wrong too. Answers can't be changed after submission, but the script still tells you when one comes back wrong.
 
-当遇到 `已提交·答错` 标记，表明提交成功，但站点判定答案不正确
-当遇到 `提交失败` 标记，表明没提交上去（可能是没找到按钮、按钮仍是禁用、接口报错等原因)
+A `submitted, incorrect` badge means the submission went through but the site marked the answer wrong.
+A `submit failed` badge means it did not go through (no button found, the button was still disabled, an API error, and so on).
 
-生成阶段仍然是一次请求答完整页；只有填入和提交是逐题做的。
+Generation still answers the whole page in one request; only filling in and submitting happen question by question.
 
-快捷键：`Alt + J`（Mac 为 `⌥ J`）收起/展开 · `Alt + Enter` 生成全部 · `Alt + Shift + S` 扫描。
+Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse/expand · `Alt + Enter` generate all · `Alt + Shift + S` scan.
 
-**中英文一键切换**：标题栏右侧有个 `中 / EN` 拨动开关，点一下整个插件（界面文字 + 大模型输出语言）一起切换，不用逐项改设置。
+**One switch for Chinese and English**: the `中 / EN` toggle in the title bar switches the whole plugin (UI text + model output language) at once, so you don't have to change settings item by item.
 
-**总结**：切到「总结」页点「总结本页」，边生成边显示（流式），会把这一页教程压缩成速学笔记——一句总结、核心要点、关键词表、易错点、可直接复制。
+**Summary**: switch to the "Summary" tab and click "Summarize page". The notes show up while they are generated (streaming), condensing this lesson into quick-study notes — one-line summary, key points, glossary, pitfalls, ready to copy.
 
-如果扫描被收起，点击其上方可以展开看完整题干、全部选项和完整答案
+If the scan is collapsed, click the area above it to expand and see the full question, every option, and the complete answer.
 
-页脚会显示本会话累计的 token 用量；请求进行中可点页脚右侧的「停止」中断，已生成的内容会保留。
+The footer shows the token usage of this session. While a request is running, click "Stop" on the right of the footer to interrupt it; whatever was already generated stays.
 
-悬浮窗可以拖：拖标题栏或底部移动整窗，收起后变成可拖动的圆钮。
+The panel can be dragged: drag the title bar or the bottom edge to move it, and when collapsed it becomes a round button you can also drag.
 
-支持的题型：选择题 / 多选 / 简答 / 论述 / 填空，以及 CodeMirror 编程练习和内嵌 IDE。
+Supported question types: multiple choice / multi-select / short answer / essay / fill-in-blank, plus CodeMirror coding exercises and the embedded IDE.
 
-**高级设置**：设置页底部折叠区，收着温度、最大 tokens、上下文长度、补充提示词、解释语言，以及「独立设置大模型输出语言」——默认不勾选，模型输出跟着右上角语言开关走；勾选后可以单独指定输出语言。
+**Advanced settings**: a collapsed section at the bottom of the settings page — temperature, max tokens, context length, extra prompt, explanation language, and "Set model output language separately". Unchecked by default, the model output follows the language switch in the top right; check it to pick the output language on its own.
 
-## 常见问题
+## FAQ
 
-**面板没出现** — 脚本没启用，或不在 `play.juicemind.com` / `classes.juicemind.com` 下。刷新后按 `Alt + J`。
+**No panel appears** — the script isn't enabled, or you're not on `play.juicemind.com` / `classes.juicemind.com`. Refresh and press `Alt + J`.
 
-**401 / 403** — Key 或者 Base URL 填错
+**401 / 403** — the key or the Base URL is wrong.
 
-**`HTTP 400 ... supported API model names are ...`** — 你填的模型名这个接口不认
+**`HTTP 400 ... supported API model names are ...`** — the model name you typed isn't one this API knows.
 
-**扫不到题** — 等页面加载完再扫
+**Nothing gets scanned** — wait for the page to finish loading, then scan.
 
-## 如何改脚本？
+## Want to modify the script?
 
-- `src/part1..6.js` 为源码分片，合并后便是 `juicemind-ai-assistant.user.js`
-- 站点怎么选元素、怎么写进编辑器：见 [notes/site-analysis.md](notes/site-analysis.md)
-- 改完 `src/` 后运行 `node scripts/build.mjs` 重新生成 bundle；CI 会校验两者是否一致
-- 学生端会自动升级：脚本头带 `@updateURL`，Tampermonkey 每次检查到版本号变化就拉新版
-- 本地测试：`npm i` → `npm test`（jsdom 154 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式 / 一键全流程，需要本机 Chrome）
-- 真实页验收与截图：把条目 ID 填进 `test/items.local.json`（模板 `test/items.example.json`，该文件不进仓库），再跑 `node test/real.js` / `node test/shots-real.js`
+- `src/part1..6.js` are the source shards; merged together they become `juicemind-ai-assistant.user.js`
+- How the script picks elements and how it writes into the editor: see [notes/site-analysis.md](notes/site-analysis.md)
+- After editing `src/`, run `node scripts/build.mjs` to rebuild the bundle; CI checks that the two match
+- Students update automatically: the script header carries `@updateURL`, and Tampermonkey pulls the new version whenever the version number changes
+- Local tests: `npm i` → `npm test` (154 jsdom cases), `npm run test:ui` (drag / hide / streaming / one-click flow — needs a local Chrome)
+- Real-page acceptance and screenshots: put the item IDs into `test/items.local.json` (template: `test/items.example.json`; that file is not committed), then run `node test/real.js` / `node test/shots-real.js`
 
-## 贡献
+## Contributing
 
-本脚本由作者基于 JuiceMind 中的 APCSP 课程进行测试，暂未验证 JuiceMind 其他课程的适配情况。因此，作者无法保证该脚本在其他课程中也能完整运行。
+The author tested this script on the APCSP course inside JuiceMind, and has not verified it against other JuiceMind courses. So the author cannot promise it runs the same way on every course.
 
-欢迎通过 PR 或 Issue 补充其他课程的适配、报告问题，或提出改进建议。
+Pull requests and issues are welcome — to add support for other courses, report a problem, or suggest an improvement.
 
-## 更新记录
+## Changelog
 
-- **1.12.0** — **新增一键完成本页功能**——全流程从检测->生成->填入->提交，循环遍历所有题目
-- **1.11.1** — 简单维护，修小错误
-- **1.11.0** — 新增批量答题功能：一次请求答完整页（不含自动提交）；提示词继续精简（500→240 token）。5 题页面实测输入 1966→587 token（−70%）。
-- **1.10.0** — **省 token 处理**：上下文按题截取，解析默认关闭，按题型设置 max_tokens。实测选择题单次相比上版本减少至约 −90%、简答题约 −55%。
-- **1.9.1** — 拟人写入新增「平均打字速度」滑块；答题卡片右上角的展开按钮改为整个顶部区域都可点。
-- **1.9.0** — **新增代码题部分的「拟人写入」功能**，逐字敲进编辑器（随机节奏、行尾停顿等的拟人操作），在协同操作流里表现为多次小增量而不是一条整篇替换；可在设置中关闭。
-- **1.8.1** — 修复标签色块两层重叠、切换语言时色块从最左侧滑过的假动画的问题。
-- **1.8.0** — 增加动画效果、设置中添加了开关。设置页把 JSON 输出模式、控制台日志移入高级设置。调整了滚动条位置。
-- **1.7.1** — 修复了中英切换开关文字与滑块错位、英文模式下总结仍夹杂中文的问题；答题的答案走输出语言、解释走解释语言。
-- **1.7.0** — 新增中英文切换功能；移除多余的「–」按钮；设置页重构出「高级设置」折叠区；总结页改为流式输出。
-- **1.6.0** — 新增「总结」页；Mac 键盘支持⌥J；收起后圆钮可拖动；标题栏换成矢量图标。
-- **1.5.0** — **学生端自动更新**；请求失败自动重试；页脚新增 token 用量与「停止」按钮；新增 `scripts/build.mjs` 与 CI 校验 bundle 与 src 一致。
-- **1.4.0** — 新增对话流式输出、可拖动的悬浮窗；设置里新增「隐藏悬浮窗」；新增英文 README。
-- **1.3.0** — **对话支持 Markdown 渲染**；对话代码块与答案卡片提供一键复制选项；扫描结果可展开；补充服务商各类模型
-- **1.2.0** — 修复模型名称识别错误的问题
-- **1.1.0** — 修复编程练习页扫不到题的错误
-- **1.0.0** — **初版**。
+- **1.12.0** — **new "Complete this page"** — detect → generate → fill in → submit, looping over every question
+- **1.11.1** — small maintenance pass, minor fixes
+- **1.11.0** — batch answering: one request answers the whole page (no auto-submit yet); the prompt kept shrinking (500→240 tokens). On a 5-question page the input dropped from 1966 to 587 tokens (−70%).
+- **1.10.0** — **token savings**: the context is trimmed per question, parsing is off by default, max tokens follow the question type. Measured roughly −90% per multiple-choice question and −55% per short answer.
+- **1.9.1** — human-like typing gained an "average typing speed" slider; the expand button on an answer card now makes the whole top area clickable.
+- **1.9.0** — **new "human-like typing" for code questions** — it types into the editor character by character (random pace, pauses at line ends, other human-ish details), so the collaboration stream shows many small increments instead of one big replacement; can be turned off in settings.
+- **1.8.1** — fixed the double-layered tab highlight and the fake slide-in animation when switching languages.
+- **1.8.0** — added animations and a toggle for them in settings. JSON output mode and console logs moved into advanced settings. Adjusted the scrollbar position.
+- **1.7.1** — fixed the text/slider misalignment on the language switch and the summary still mixing in Chinese in English mode; answers follow the output language, explanations follow the explanation language.
+- **1.7.0** — added the Chinese/English switch, removed the stray "–" button, restructured settings with an "Advanced" section, and made the summary stream.
+- **1.6.0** — added the "Summary" tab, `⌥J` on Mac, a draggable round button when collapsed, and a vector icon in the title bar.
+- **1.5.0** — **automatic updates for students**, automatic retry on failed requests, token usage and a "Stop" button in the footer, plus `scripts/build.mjs` with CI checking the bundle against src.
+- **1.4.0** — streaming chat replies, a draggable panel, a "hide panel" setting, and an English README.
+- **1.3.0** — **Markdown rendering in chat**, one-click copy for chat code blocks and answer cards, expandable scan results, and more provider models.
+- **1.2.0** — fixed model-name detection
+- **1.1.0** — fixed the coding exercise page not being scanned
+- **1.0.0** — **first release**.
 
-## 免责
+## Disclaimer
 
-项目仅供学习交流，请遵守所在学校的学术规范。
+For study and discussion only. Please follow your school's academic integrity rules.
