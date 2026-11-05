@@ -5,6 +5,8 @@
     scan: null,
     tab: 'solve',
     busy: false,
+    flow: false, // 一键全流程正在跑
+    stopMark: 0, // 每按一次「停止」加一，长流程靠它判断用户是不是中途叫停了
     chat: [],
     summary: null, // { text, url }
     mounted: false,
@@ -166,6 +168,15 @@
 .btn.danger { color: var(--jm-error); border-color: var(--jm-error-border); }
 .row { display: flex; gap: 6px; flex-wrap: wrap; }
 .bar { display: flex; gap: 6px; padding: 2px 0 10px; }
+/* 一键全流程：单独一行、整行宽度，作为最主要的那个动作 */
+.cta { padding: 2px 0 8px; }
+.btn.go {
+  width: 100%; padding: 10px 12px; font-size: 13px; font-weight: 700; border-radius: 12px;
+  background: linear-gradient(135deg, var(--jm-primary), var(--jm-secondary)); color: #fff; border-color: transparent;
+  box-shadow: 0 8px 18px -8px var(--jm-shadow);
+}
+.btn.go:hover { filter: brightness(1.07); }
+.btn.go:active { transform: scale(.995); }
 
 /* 题目卡片 */
 .empty { color: var(--jm-muted); font-size: 12.5px; padding: 18px 6px; text-align: center; line-height: 1.7; }
@@ -690,6 +701,9 @@ details.adv .adv-body { padding-top: 6px; }
           </div>
           <div class="body">
             <div class="pane on" data-pane="solve">
+              <div class="cta">
+                <button class="btn go" data-ref="btn-auto">${L('一键完成本页', 'Complete this page')}</button>
+              </div>
               <div class="bar">
                 <button class="btn primary" data-ref="btn-scan">${L('扫描页面', 'Scan page')}</button>
                 <button class="btn" data-ref="btn-solve">${L('生成全部', 'Generate all')}</button>
@@ -878,6 +892,7 @@ details.adv .adv-body { padding-top: 6px; }
       r['btn-scan'].addEventListener('click', () => Actions.scan(true));
       r['btn-solve'].addEventListener('click', () => Actions.solveAll());
       r['btn-fill'].addEventListener('click', () => Actions.fillAll());
+      r['btn-auto'].addEventListener('click', () => Actions.autoFlow());
       r['btn-expand'].addEventListener('click', () => {
         const qs = (App.scan && App.scan.questions) || [];
         const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
@@ -1134,7 +1149,8 @@ details.adv .adv-body { padding-top: 6px; }
     renderQuestionCard(q, i) {
       const expanded = this.isExpanded(q);
       const card = document.createElement('div');
-      card.className = 'q' + (q.status === 'done' ? ' done' : q.status === 'error' ? ' error' : '') + (expanded ? ' expanded' : '');
+      const bad = q.status === 'error' || q.submitStatus === 'error' || q.submitStatus === 'wrong';
+      card.className = 'q' + (q.status === 'done' || q.submitStatus === 'submitted' ? ' done' : bad ? ' error' : '') + (expanded ? ' expanded' : '');
       card.dataset.qid = q.id;
 
       const hd = document.createElement('div');
@@ -1151,7 +1167,16 @@ details.adv .adv-body { padding-top: 6px; }
 
       const st = document.createElement('span');
       st.className = 'msg';
-      if (q.status === 'running') st.innerHTML = '<span class="spin"></span>';
+      if (q.submitStatus === 'submitted') {
+        st.className = 'msg ok';
+        st.textContent = L('已提交', 'submitted');
+      } else if (q.submitStatus === 'wrong') {
+        st.className = 'msg err';
+        st.textContent = L('已提交·答错', 'submitted, incorrect');
+      } else if (q.submitStatus === 'error') {
+        st.className = 'msg err';
+        st.textContent = L('提交失败', 'submit failed');
+      } else if (q.status === 'running') st.innerHTML = '<span class="spin"></span>';
       else if (q.status === 'done') {
         st.className = 'msg ok';
         st.textContent = L('已生成', 'done');
@@ -1235,6 +1260,15 @@ details.adv .adv-body { padding-top: 6px; }
         err.className = 'explain';
         err.style.color = 'var(--jm-error)';
         err.textContent = q.error;
+        card.appendChild(err);
+      }
+
+      // 提交出问题：答案已经交出去了改不了，但必须让用户知道
+      if (q.submitError) {
+        const err = document.createElement('div');
+        err.className = 'explain';
+        err.style.color = 'var(--jm-error)';
+        err.textContent = L('提交问题：', 'Submit issue: ') + q.submitError;
         card.appendChild(err);
       }
 

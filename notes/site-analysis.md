@@ -105,6 +105,27 @@
 
 字体：正文 Roboto / Assistant，代码 Roboto Mono。IDE 另有一套 `--ide-*` 变量挂在 `<html>` 上（Dracula 配色）。
 
+## 提交（实测 2026-11-05）
+
+点完 `Submit Answer` 之后，站点会弹一个 **MUI 浮层**（`class="MuiModal-root"`），它会挡住下一题的提交，必须关掉。实测三个状态：
+
+| 状态 | 标题 | 里面有什么 | 能不能关 |
+| --- | --- | --- | --- |
+| 评分中 | `#modal-title` = `Grading submission` | `.MuiCircularProgress-root`（`role="progressbar"`）转圈 | **不能**，只能等它自己换成结果面板 |
+| 客观题结果 | `Result` 徽章 + `Correct` / `Incorrect` + 提交时间 | 右上角一个圆钮，里面只有 `<svg data-testid="CloseIcon">` | 能 |
+| 主观题结果 | `Needs grading` + "This submission needs to be graded by the teacher." | 同上 | 能 |
+
+关键细节（踩过的坑）：
+
+1. **关闭按钮平时是隐形的**：`<button class="absolute top-5 right-5 ..." style="opacity: 0;">`，鼠标移上去才显形，但照样能点。它是**唯一**能关掉结果面板的途径——遮罩是 `aria-hidden="true"` 的，点它不关；这不是 MUI `Dialog`（只是 `Modal`），Esc 同样不生效。
+2. **别用整块 textContent 匹配结论词**：结论徽章和标题是相邻元素，`textContent` 会粘成 `IncorrectResult`，`\b` 对不上。要逐个元素读文本（`src/part4.js` 的 `SubmitFlow.readState`）。
+3. **页面上另有一个 "Review pending" 按钮**（右侧进度面板），不是弹层。按 "pending request" 两个字匹配才能避开它。
+
+## 选择题的两个坑（实测）
+
+1. **站点会给每道题预勾第一个选项**（DOM 里 `checked` 为真），但 React 状态里还没有值——所以「Submit Answer」一开始是 `disabled`。
+2. **点「已经勾上的那个」不会触发 change**：DOM 不派发 change，React 的 `onChange` 也不触发，站点状态不更新，提交按钮就一直禁用。实测四种写法（`input.click()`、完整指针序列、点整行、赋值 + 派发事件）全都无效——**唯一有效的办法是先把勾选清掉再点**，让 React 看到一次真实的变化。脚本的 `Appliers.clickOption` 现在就是这么做的。
+
 ## 其它
 
 - 站点还嵌了 Code.org 的 Game Lab / animation-library 资源（`/api/v1/animation-library/...`），与答题无关。

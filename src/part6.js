@@ -73,6 +73,7 @@
       HumanTyping.cancel();
       LLM.abort();
       App.busy = false;
+      App.stopMark++;
       this.setBusy(false);
       UI.setStopVisible(false);
       UI.status(wasBusy ? L('已停止', 'Stopped') : L('就绪', 'Ready'));
@@ -232,9 +233,109 @@
       UI.toast(L(`已填入 ${ok} 题`, `Filled ${ok}`) + (skip ? L(`，${skip} 题需要先生成`, `; ${skip} need generating first`) : ''));
     },
 
+    /**
+     * 一键完成：检测 → 生成 → 逐题填入 → 逐题提交。
+     * 每道题走同一套流程：填入 → 提交 → 关掉站点的 Pending 弹层 → 判断这次提交成没成功。
+     * 生成阶段沿用 v1.11 的批量作答（一次请求答完整页，省 token）；填入与提交逐题做，
+     * 因为提交是「一道题一次」的动作，而且提交后答案就改不了了，必须逐题确认结果。
+     */
+    async autoFlow() {
+      if (App.busy || App.flow) return;
+      if (!this.ensureKey()) return;
+
+      App.flow = true;
+      const mark = App.stopMark; // 用户中途按「停止」时用它判断
+      const stat = { total: 0, filled: 0, submitted: 0, wrong: 0, failed: [], blocked: false };
+      try {
+        // 1) 检测
+        const scan = await this.scan(false);
+        const qs = (scan && scan.questions) || [];
+        stat.total = qs.length;
+        if (!qs.length) {
+          UI.toast(L('这一页没有可自动作答的题目', 'No auto-answerable questions here'));
+          return;
+        }
+
+        // 2) 生成（批量优先，批量失败自动回退逐题）
+        await this.solveAll();
+        if (App.stopMark !== mark) {
+          UI.status(L('已停止', 'Stopped'));
+          return;
+        }
+
+        // 3) 逐题：填入 → 提交 → 关弹层 → 查错
+        App.busy = true;
+        this.setBusy(true);
+        UI.setStopVisible(true);
+        for (let i = 0; i < qs.length; i++) {
+          if (!App.busy || App.stopMark !== mark) break;
+          const q = qs[i];
+          UI.status(L(`第 ${i + 1}/${qs.length} 题：填入并提交…`, `Question ${i + 1}/${qs.length}: filling and submitting…`), 'busy');
+
+          if (!q.answer) {
+            q.submitStatus = 'error';
+            q.submitError = q.error || L('没有可用答案', 'no answer available');
+            stat.failed.push({ n: i + 1, stage: L('生成', 'generate'), msg: q.submitError });
+            UI.refreshCard(q);
+            continue;
+          }
+
+          const r = await Appliers.apply(q);
+          if (!r.ok) {
+            q.submitStatus = 'error';
+            q.submitError = r.msg;
+            stat.failed.push({ n: i + 1, stage: L('填入', 'fill'), msg: r.msg });
+            UI.refreshCard(q);
+            continue;
+          }
+          stat.filled++;
+
+          const s = await Appliers.submit(q);
+          if (s.ok) {
+            q.submitStatus = s.wrong ? 'wrong' : 'submitted';
+            q.submitError = '';
+            stat.submitted++;
+            if (s.wrong) stat.wrong++;
+          } else {
+            q.submitStatus = 'error';
+            q.submitError = s.err || s.msg;
+            stat.failed.push({ n: i + 1, stage: L('提交', 'submit'), msg: q.submitError });
+            // 弹窗关不掉 → 页面被挡住，后面的题也提交不了，就地停下
+            if (s.blocked) {
+              stat.blocked = true;
+              UI.refreshCard(q);
+              break;
+            }
+          }
+          UI.refreshCard(q);
+          await sleep(200);
+        }
+      } finally {
+        App.flow = false;
+        App.busy = false;
+        this.setBusy(false);
+        UI.setStopVisible(false);
+        UI.updateUsage();
+      }
+
+      // 汇总：答案提交后改不了了，有问题必须说清楚
+      const head = L(`完成：已提交 ${stat.submitted}/${stat.total}`, `Done: ${stat.submitted}/${stat.total} submitted`);
+      const extra = stat.wrong ? L(`，${stat.wrong} 题被判为不正确`, `, ${stat.wrong} marked incorrect`) : '';
+      if (stat.failed.length) {
+        const detail = stat.failed.map((f) => `#${f.n} ${f.stage}: ${f.msg}`).join(' | ');
+        UI.status(head + extra + L(`，${stat.failed.length} 题有问题`, `, ${stat.failed.length} problem(s)`), 'err');
+        UI.toast(head + extra + L(`，${stat.failed.length} 题有问题`, `, ${stat.failed.length} problem(s)`), 5200);
+        log('自动提交完成，有问题：', detail);
+      } else {
+        UI.status(head + extra, stat.wrong ? 'err' : undefined);
+        UI.toast(head + extra, stat.wrong ? 4200 : 3000);
+      }
+      return stat;
+    },
+
     setBusy(on) {
       const r = UI.refs;
-      ['btn-scan', 'btn-solve', 'btn-fill'].forEach((k) => {
+      ['btn-scan', 'btn-solve', 'btn-fill', 'btn-auto'].forEach((k) => {
         if (r[k]) r[k].disabled = !!on;
       });
     },

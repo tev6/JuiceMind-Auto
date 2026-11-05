@@ -653,18 +653,33 @@
       if (!opt) return false;
       const target = opt.input || opt.clickEl || opt.el;
       if (!target) return false;
+      const input = opt.input;
+      // 站点会给每道题预勾选第一个选项。直接点「已经勾上」的那个，
+      // DOM 不会触发 change，React 也就不会更新状态 → 提交按钮一直是禁用的。
+      // 所以先把勾选清掉再点，让 React 看到一次真实的变化。
+      const wasChecked = !!(input && input.checked);
+      if (wasChecked) {
+        try {
+          input.checked = false;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        } catch (e) {
+          /* ignore */
+        }
+      }
       try {
         target.click();
       } catch (e) {
         /* ignore */
       }
       // 确保状态（React 受控组件可能忽略 click）
-      if (opt.input) {
+      if (input) {
         setTimeout(() => {
           try {
-            if (!opt.input.checked) {
-              opt.input.checked = true;
-              opt.input.dispatchEvent(new Event('change', { bubbles: true }));
+            if (!input.checked) {
+              input.checked = true;
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
             }
           } catch (e) {
             /* ignore */
@@ -825,15 +840,315 @@
 
     async submit(q) {
       const btns = this.findSubmitButtons(q);
-      if (!btns.length) return { ok: false, msg: '没找到提交按钮，请手动提交' };
+      if (!btns.length) return { ok: false, msg: L('没找到提交按钮，请手动提交', 'No submit button found — submit it manually') };
       const btn = btns[0];
       if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
         await sleep(400);
-        if (btn.disabled) return { ok: false, msg: '提交按钮还是禁用状态（内容可能没被页面接受），请手动确认' };
+        if (btn.disabled) return { ok: false, msg: L('提交按钮还是禁用状态（内容可能没被页面接受），请手动确认', 'Submit button is still disabled (the page may not have accepted the answer) — confirm it manually') };
       }
+      // 提交前先拍快照：浮层、报错提示、接口响应都要和「提交后」做对比
+      const pre = {
+        overlays: SubmitFlow.snapshot(),
+        errors: SubmitFlow.errorSnapshot(),
+        rpc: new Set(NetTap.records),
+      };
       btn.click();
-      await sleep(500);
-      return { ok: true, msg: '已点击「' + oneLine(textOf(btn)) + '」' };
+      const post = await SubmitFlow.settle(q, pre);
+      if (post.err) {
+        return { ok: false, err: post.err, dialog: post.dialog, state: post.state, msg: L('提交失败：', 'Submit failed: ') + post.err };
+      }
+      if (post.blocked) {
+        return { ok: false, blocked: true, err: L('提交结果弹窗没能关掉，下一题提交不了，请手动关掉它', 'The result popup did not close — close it manually before the next question'), dialog: post.dialog, state: post.state, msg: L('提交后弹窗关不掉', 'Could not close the result popup') };
+      }
+      // 提交成功；答案对不对是另一回事，但要如实告诉用户
+      if (post.state === 'incorrect') {
+        return { ok: true, wrong: true, state: post.state, dialog: post.dialog, msg: L('已提交（站点判为不正确）', 'Submitted (marked incorrect)') };
+      }
+      if (post.state === 'needs-grading') {
+        return { ok: true, state: post.state, dialog: post.dialog, msg: L('已提交（待老师批改）', 'Submitted (waiting for the teacher)') };
+      }
+      if (post.state === 'timeout') {
+        return { ok: true, state: post.state, dialog: post.dialog, msg: L('已提交（没等到结果）', 'Submitted (no result shown)') };
+      }
+      return { ok: true, state: post.state, dialog: post.dialog, msg: L('已提交', 'Submitted') };
+    },
+  };
+
+  /* ============================ 8.5 提交流程 ============================ */
+  /**
+   * 站点提交后会弹出一个 MUI 浮层（.MuiModal-root），它会挡住下一题的提交，必须先关掉。
+   * 实测（2026-11 真实页面）浮层有三个状态：
+   *   1. "Grading submission"  —— 评分中的转圈（.MuiCircularProgress-root），没有关闭按钮
+   *   2. "Result" + Correct/Incorrect + 提交时间 —— 客观题自动判分
+   *   3. "Needs grading" —— 主观题，等老师批
+   * 状态 2/3 右上角有一个只放了 CloseIcon 的圆钮（<svg data-testid="CloseIcon">），
+   * 平时 opacity:0（鼠标移上去才显形），但照样能点 —— 这是唯一的关闭途径：
+   * 遮罩是 aria-hidden 的，点它不会关；这也不是 Dialog，Esc 同样不生效。
+   *
+   * 站点没有公开这个浮层的结构契约（换版本就会变），所以这里不依赖固定选择器：
+   *   · 结构命中 —— 提交之后新冒出来的可见浮层（主要手段）
+   *   · 文案命中 —— 同时含 "pending request" 两个词才算（页面上另有 "Review pending" 按钮，别误伤）
+   * 关不掉也不死磕：如实报告卡在哪一步，让用户知道发生了什么。
+   *
+   * 顺便判断「这次提交成没成功、答案对不对」：答案一旦提交就改不了了，
+   * 出错只能靠浮层里的结论、页面上的报错提示与接口返回来判断，然后如实告诉用户。
+   */
+  const SubmitFlow = {
+    /** 浮层候选：MUI 弹层 / 对话框 / 遮罩 / 弹窗 / 抽屉 */
+    OVERLAY_SEL:
+      '.MuiModal-root,.MuiDialog-root,' +
+      '[role="dialog"],[aria-modal="true"],[data-state="open"],[data-radix-popper-content-wrapper],' +
+      '[class*="modal" i],[class*="dialog" i],[class*="overlay" i],[class*="backdrop" i],' +
+      '[class*="popup" i],[class*="toast" i],[class*="drawer" i],[class*="sheet" i],.fixed.inset-0',
+
+    /** 报错提示的元素 */
+    ERROR_SEL: '[role="alert"],[class*="toast" i],[class*="alert" i],[class*="snackbar" i],[class*="error" i]',
+
+    /** 当前可见的浮层 */
+    overlays() {
+      return $$(this.OVERLAY_SEL).filter((el) => {
+        if (!el || !el.isConnected || !isVisible(el)) return false;
+        const r = el.getBoundingClientRect();
+        return r.width >= 60 && r.height >= 30;
+      });
+    },
+
+    /** 提交前拍一张快照：哪些浮层本来就在 */
+    snapshot() {
+      return new Set(this.overlays());
+    },
+
+    /** 报错提示元素的快照 */
+    errorSnapshot() {
+      return new Set($$(this.ERROR_SEL).filter((el) => isVisible(el)));
+    },
+
+    /**
+     * 找出挡住路的那个浮层
+     * @param {Set} before 提交前的浮层快照（给了才会判断「新出现」）
+     * @param {boolean} deep 是否允许全页面找 "Pending Request" 字样（慢，只在必要时用）
+     */
+    find(before, deep) {
+      const cands = this.overlays();
+      // 1) 文案命中
+      for (const el of cands) {
+        if (/pending\s*request/i.test(oneLine(textOf(el)))) return el;
+      }
+      // 2) 提交后新出现的浮层（取最外层那个：关闭按钮和内容都在它身上）
+      if (before) {
+        const fresh = cands.filter((el) => !before.has(el));
+        if (fresh.length) {
+          const outermost = fresh.filter((el) => !fresh.some((o) => o !== el && o.contains(el)));
+          return outermost[0] || fresh[0];
+        }
+      }
+      // 3) 兜底：全页面找 "Pending Request" 字样（取最内层元素）
+      if (deep) {
+        const all = $$('*').filter((el) => /pending\s*request/i.test(el.textContent || ''));
+        if (all.length) {
+          const inner = all.filter((el) => !all.some((o) => o !== el && el.contains(o)));
+          const hit = inner[0] || all[0];
+          return hit.closest('.MuiModal-root,[role="dialog"],[class*="modal" i],[class*="overlay" i],[class*="popup" i]') || hit;
+        }
+      }
+      return null;
+    },
+
+    /** 浮层是不是还在「评分中」 */
+    isGrading(el) {
+      if (!el || !el.isConnected) return false;
+      if (el.querySelector('.MuiCircularProgress-root,[role="progressbar"]')) return true;
+      const title = oneLine(textOf(el.querySelector('#modal-title') || el));
+      return /grading|pending\s*request|submitting/i.test(title);
+    },
+
+    /**
+     * 读浮层里的结论：correct / incorrect / needs-grading / ''
+     * 注意：不能用整块 textContent 去匹配单词边界 —— 站点把结论和标题放在相邻元素里，
+     * textContent 会粘成 "IncorrectResult"，\b 就对不上了。所以逐个元素读。
+     */
+    readState(el) {
+      if (!el || !el.isConnected) return '';
+      const parts = [];
+      const push = (e) => {
+        const t = oneLine(textOf(e));
+        if (t) parts.push(t);
+      };
+      push(el);
+      for (const e of el.querySelectorAll('*')) push(e);
+      for (const t of parts) {
+        if (/^incorrect\b/i.test(t)) return 'incorrect';
+        if (/^correct\b/i.test(t)) return 'correct';
+        if (/^needs\s+grading\b/i.test(t)) return 'needs-grading';
+      }
+      return '';
+    },
+
+    /**
+     * 等浮层给出最终结论
+     * @returns {Promise<{state: string, text: string}>}
+     *   state: correct | incorrect | needs-grading | other | timeout | gone
+     */
+    async waitResult(el, timeout) {
+      const t0 = Date.now();
+      const max = timeout || 25000;
+      while (Date.now() - t0 < max) {
+        if (!el || !el.isConnected) return { state: 'gone', text: '' };
+        const state = this.readState(el);
+        if (state) return { state, text: state };
+        if (!this.isGrading(el)) {
+          const title = oneLine(textOf(el.querySelector('#modal-title') || el));
+          return { state: 'other', text: truncate(title, 60) };
+        }
+        // 没有转圈、只是标题写着 pending 之类：别死等
+        const spinning = el.querySelector('.MuiCircularProgress-root,[role="progressbar"]');
+        if (!spinning && Date.now() - t0 > 10000) {
+          const title = oneLine(textOf(el.querySelector('#modal-title') || el));
+          return { state: 'other', text: truncate(title, 60) };
+        }
+        await sleep(200);
+      }
+      return { state: 'timeout', text: '' };
+    },
+
+    /** 找浮层的关闭按钮 */
+    findCloseButton(el) {
+      if (!el) return null;
+      // 站点用的是 MUI：右上角一个只放了 CloseIcon 的圆钮（平时 opacity:0）
+      const icon = el.querySelector('[data-testid="CloseIcon"]');
+      if (icon) {
+        const btn = icon.closest('button');
+        if (btn) return btn;
+      }
+      // 通用兜底：aria-label / title / 文本
+      const closers = $$('button,[role="button"],[aria-label],a[href]', el).filter((b) => {
+        const label = oneLine(b.getAttribute('aria-label') || b.getAttribute('title') || textOf(b) || '');
+        if (!label) return false;
+        if (/^(close|dismiss|关闭|關閉)$/i.test(label)) return true;
+        return /^[×✕✖⨯]$/.test(label);
+      });
+      return closers[closers.length - 1] || null;
+    },
+
+    /** 关掉浮层：关闭按钮 → Escape → 点遮罩。返回实际用的方式 */
+    close(el) {
+      if (!el || !el.isConnected) return 'none';
+      // 1) 关闭按钮
+      const btn = this.findCloseButton(el);
+      if (btn) {
+        try {
+          btn.click();
+        } catch (e) {
+          /* ignore */
+        }
+        return 'button';
+      }
+      // 2) Escape
+      try {
+        const ev = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true });
+        el.dispatchEvent(ev);
+        document.dispatchEvent(ev);
+        window.dispatchEvent(ev);
+      } catch (e) {
+        /* ignore */
+      }
+      // 3) 点遮罩（父层盖满整屏时才算）
+      const back = el.parentElement;
+      if (back && back !== document.body && back !== document.documentElement) {
+        const cs = getComputedStyle(back);
+        const r = back.getBoundingClientRect();
+        if ((cs.position === 'fixed' || cs.position === 'absolute') && r.width >= window.innerWidth * 0.7) {
+          try {
+            back.click();
+          } catch (e) {
+            /* ignore */
+          }
+          return 'backdrop';
+        }
+      }
+      return 'escape';
+    },
+
+    /** 提交之后新出现的报错提示（浮层里的内容另有专门的判断，不在这里重复报） */
+    detectError(before) {
+      const fresh = $$(this.ERROR_SEL).filter(
+        (el) => isVisible(el) && !before.has(el) && !el.closest('.MuiModal-root,.MuiDialog-root,[role="dialog"]')
+      );
+      for (const el of fresh) {
+        const t = oneLine(textOf(el));
+        if (t && /error|fail|invalid|unsuccess|错误|失败|无效|抱歉/i.test(t)) return truncate(t, 160);
+      }
+      return '';
+    },
+
+    /** 提交接口返回里有没有错误（NetTap 旁听到的 tRPC 响应） */
+    rpcError(before) {
+      for (const r of NetTap.records) {
+        if (before.has(r)) continue;
+        if (!/submi|answer|attempt|upsert|contest|grade/i.test(r.procedure || '')) continue;
+        const j = r.json;
+        if (!j || typeof j !== 'object') continue;
+        let s;
+        try {
+          s = JSON.stringify(j);
+        } catch (e) {
+          continue;
+        }
+        if (/"error"\s*:\s*\{/.test(s) || /"error"\s*:\s*"[^"]/.test(s) || /"success"\s*:\s*false/.test(s)) {
+          return truncate(oneLine(s), 160);
+        }
+      }
+      return '';
+    },
+
+    /**
+     * 提交之后：等浮层 → 等它出结论 → 关掉 → 判断成败
+     * @param {object} q 这道题
+     * @param {object} pre {overlays, errors, rpc} 提交前的快照
+     */
+    async settle(q, pre) {
+      const out = { dialog: '', err: '', ready: false, state: '', blocked: false };
+
+      // 1) 等浮层出现
+      let overlay = null;
+      const t0 = Date.now();
+      while (Date.now() - t0 < 5000) {
+        overlay = this.find(pre.overlays, false);
+        if (overlay) break;
+        await sleep(120);
+      }
+
+      if (overlay) {
+        // 2) 等它给结论（评分中会转圈，等它出 Result / Needs grading）
+        const res = await this.waitResult(overlay, 25000);
+        out.state = res.state;
+        // 3) 关掉它 —— 不关掉下一题就提交不了
+        out.dialog = this.close(overlay);
+        await sleep(500);
+        const t1 = Date.now();
+        while (Date.now() - t1 < 3000 && this.find(pre.overlays, false)) await sleep(150);
+        if (this.find(pre.overlays, false)) {
+          out.dialog += '+stuck';
+          out.blocked = true;
+        }
+      }
+
+      // 4) 等页面不再被浮层挡住
+      out.ready = await this.waitReady(pre, 5000);
+
+      // 5) 判定这次提交成没成功
+      out.err = this.detectError(pre.errors) || this.rpcError(pre.rpc);
+      return out;
+    },
+
+    /** 页面是否已经不再被新浮层挡住 */
+    async waitReady(pre, timeout) {
+      const t0 = Date.now();
+      while (Date.now() - t0 < (timeout || 4000)) {
+        if (!this.find(pre ? pre.overlays : null, false)) return true;
+        await sleep(150);
+      }
+      return false;
     },
   };
 

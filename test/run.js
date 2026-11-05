@@ -638,6 +638,25 @@ const doc = window.document;
   ok('@author 不是占位符', !!mAuthor && mAuthor.trim().toLowerCase() !== 'you', mAuthor);
   ok('头部仍带 @updateURL / @downloadURL', /^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\//m.test(head) && /^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\//m.test(head));
 
+  console.log('\n【25】一键全流程（检测 → 生成 → 填入 → 提交）');
+  const af1 = await runAutoFlowCase({ result: 'Incorrect' });
+  ok('全流程把每一题都提交了', af1.submits === 2, af1.submits);
+  ok('提交后的弹层被关掉了', af1.leftOverModals === 0, af1.leftOverModals);
+  ok('站点判为不正确时如实告知', af1.stat.submitted === 2 && af1.stat.wrong === 2, af1.stat);
+  ok('卡片标出「已提交·答错」', af1.cardStates.length === 2 && af1.cardStates.every((s) => /答错|incorrect/i.test(s)), af1.cardStates);
+  ok('选择题按模型给的答案勾选', af1.checked.length === 2, af1.checked);
+  ok('全部题目没有报错', af1.stat.failed.length === 0, af1.stat.failed);
+
+  const af2 = await runAutoFlowCase({ result: 'Correct' });
+  ok('站点判为正确时显示已提交', af2.stat.submitted === 2 && af2.stat.wrong === 0 && af2.cardStates.every((s) => /已提交|submitted/i.test(s)), af2.cardStates);
+
+  const af3 = await runAutoFlowCase({ result: 'Needs grading' });
+  ok('待老师批改也算提交成功', af3.stat.submitted === 2 && af3.stat.wrong === 0, af3.stat);
+
+  const af4 = await runAutoFlowCase({ result: 'Incorrect', noClose: true });
+  ok('弹层关不掉时流程停下并报告', af4.stat.submitted === 0 && af4.stat.failed.length === 1, af4.stat);
+  ok('弹层关不掉时如实说明原因', /弹窗|popup/i.test((af4.stat.failed[0] && af4.stat.failed[0].msg) || ''), af4.stat.failed);
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {
@@ -671,5 +690,110 @@ async function runQuizCase() {
   w.eval(script);
   const J2 = w.__JMAI__;
   return await J2.Actions.scan(false);
+}
+
+/**
+ * 第三个场景：一键全流程（独立 jsdom）。
+ * 这里照抄真实站点提交后的行为：点提交 → MUI 弹层（评分中）→ 结果面板（右上角一个
+ * 只放了 CloseIcon 的圆钮，平时 opacity:0）→ 必须关掉它，下一题才提交得了。
+ *
+ * @param {object} opts
+ *   result: 'Incorrect' | 'Correct' | 'Needs grading' —— 站点给出的结论
+ *   noClose: true —— 模拟「关不掉」（没有 CloseIcon）
+ *   answer:  模型给的答案字母
+ */
+async function runAutoFlowCase(opts) {
+  const o = opts || {};
+  const { JSDOM } = require('jsdom');
+  const fs = require('fs');
+  const path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, 'fixture-submit.html'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '..', 'juicemind-ai-assistant.user.js'), 'utf8');
+  const dom = new JSDOM(html, {
+    url: 'https://play.juicemind.com/classes/TEAM/item/ITEM123',
+    runScripts: 'outside-only',
+    pretendToBeVisual: true,
+  });
+  const w = dom.window;
+  w.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  w.PointerEvent = w.MouseEvent;
+  if (!w.CSS) w.CSS = {};
+  if (!w.CSS.escape) w.CSS.escape = (s) => String(s).replace(/[^\w-]/g, (c) => '\\' + c);
+  w.Element.prototype.getBoundingClientRect = function () {
+    return { x: 0, y: 10, left: 10, right: 810, bottom: 50, width: 800, height: 40 };
+  };
+
+  // ---- 模拟站点的提交弹层 ----
+  const submits = [];
+  w.document.querySelectorAll('button').forEach((btn) => {
+    if (!/submit answer/i.test(btn.textContent || '')) return;
+    btn.addEventListener('click', () => {
+      submits.push(btn);
+      const root = w.document.createElement('div');
+      root.className = 'MuiModal-root css-3tfy7s';
+      root.setAttribute('role', 'presentation');
+      root.innerHTML =
+        '<div aria-hidden="true" class="MuiBackdrop-root MuiModal-backdrop"></div>' +
+        '<div tabindex="0" data-testid="sentinelStart"></div>' +
+        '<div class="flex size-full flex-col items-center justify-center" tabindex="-1">' +
+        '<div class="w-full max-w-[400px] p-8">' +
+        '<span class="MuiCircularProgress-root" role="progressbar"></span>' +
+        '<h2 id="modal-title">Grading submission</h2><p id="modal-description">...</p>' +
+        '</div></div><div tabindex="0" data-testid="sentinelEnd"></div>';
+      w.document.body.appendChild(root);
+
+      // 评分结束后换成结果面板
+      w.setTimeout(() => {
+        const closeBtn = o.noClose
+          ? ''
+          : '<button class="absolute top-5 right-5" style="opacity: 0;"><svg data-testid="CloseIcon"><path d="M19 6.41"></path></svg></button>';
+        root.innerHTML =
+          '<div aria-hidden="true" class="MuiBackdrop-root MuiModal-backdrop"></div>' +
+          '<div tabindex="0" data-testid="sentinelStart"></div>' +
+          '<div class="flex size-full flex-col items-center justify-center" tabindex="-1">' +
+          '<div style="position: relative; background-color: white;">' + closeBtn +
+          '<div class="bg-red-50 border-red-200"><span class="text-red-700">' + (o.result || 'Incorrect') + '</span></div>' +
+          '<div>Result</div><div>Submitted Nov 5, 2026, 12:04 PM</div>' +
+          '</div></div><div tabindex="0" data-testid="sentinelEnd"></div>';
+        const cb = root.querySelector('[data-testid="CloseIcon"]');
+        if (cb) cb.closest('button').addEventListener('click', () => root.remove());
+      }, 150);
+    });
+  });
+
+  // ---- 假模型：批量模式要返回 {"answers":[{"i":…}]} ----
+  const letter = o.answer || 'A';
+  w.fetch = async (u, init) => {
+    const body = JSON.parse((init && init.body) || '{}');
+    const joined = (body.messages || []).map((m) => m.content).join('\n');
+    let payload;
+    if (/批量作答/.test(joined)) {
+      const n = (joined.match(/【第 \d+ 题】/g) || []).length || 1;
+      payload = { answers: Array.from({ length: n }, (_, i) => ({ i: i + 1, type: 'mcq', answers: [letter] })) };
+    } else {
+      payload = { type: 'mcq', answers: [letter], explanation: 'mock' };
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(payload) } }], model: 'mock' }), { status: 200 });
+  };
+
+  w.eval(script);
+  const J = w.__JMAI__;
+  J.Store.set({ apiKey: 'sk-mock', model: 'mock', baseUrl: 'https://api.openai.com/v1', stream: false, jsonMode: true, humanType: false, explain: false, batchSolve: true });
+
+  const stat = await J.Actions.autoFlow();
+  await new Promise((r) => setTimeout(r, 200));
+
+  const host = w.document.getElementById('jm-ai-host');
+  const cards = host && host.shadowRoot ? Array.from(host.shadowRoot.querySelectorAll('.q')) : [];
+  return {
+    stat,
+    submits: submits.length,
+    leftOverModals: w.document.querySelectorAll('.MuiModal-root').length,
+    cardStates: cards.map((c) => {
+      const msg = c.querySelector('.q-hd .msg');
+      return msg ? msg.textContent : '';
+    }),
+    checked: Array.from(w.document.querySelectorAll('input[type=radio]:checked')).map((r) => r.getAttribute('aria-label')),
+  };
 }
 

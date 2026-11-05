@@ -331,10 +331,51 @@ function ok(name, cond, extra) {
   });
   await sleep(250);
 
+  console.log('\n【8】一键完成（全流程入口）');
+  // 前面几组会把面板收起/隐藏，先确保它展开，否则量不到宽度
+  await page.evaluate(() => {
+    const J = window.__JMAI__;
+    try {
+      if (typeof J.UI.setHidden === 'function') J.UI.setHidden(false);
+      if (typeof J.UI.setCollapsed === 'function') J.UI.setCollapsed(false);
+      if (typeof J.UI.setTab === 'function') J.UI.setTab('solve'); // 没配 Key 时默认停在设置页
+    } catch (e) {}
+  });
+  await sleep(300);
+  const cta = await page.evaluate(() => {
+    const h = document.getElementById('jm-ai-host').shadowRoot;
+    const b = h.querySelector('[data-ref="btn-auto"]');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    const pane = h.querySelector('.pane[data-pane="solve"]').getBoundingClientRect();
+    return { text: b.textContent.trim(), w: Math.round(r.width), paneW: Math.round(pane.width) };
+  });
+  ok('答题页有一键完成按钮', !!cta, cta);
+  ok('按钮文案够短', !!cta && cta.text.length <= 12, cta && cta.text);
+  ok('按钮是整行宽度（最主要的那个动作）', !!cta && cta.w > cta.paneW * 0.8, cta);
+
+  // 点它 → 跑完整流程（这个页面没有提交按钮，应当如实报告而不是静默失败）
+  await page.evaluate(() => {
+    window.fetch = async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ type: 'mcq', answers: ['A'] }) } }] }), { status: 200 });
+    const J = window.__JMAI__;
+    J.Store.set({ apiKey: 'sk-mock', model: 'mock', baseUrl: 'https://api.openai.com/v1', stream: false, jsonMode: true, humanType: false, explain: false, batchSolve: true });
+    document.getElementById('jm-ai-host').shadowRoot.querySelector('[data-ref="btn-auto"]').click();
+  });
+  await sleep(3500);
+  const afterFlow = await page.evaluate(() => {
+    const h = document.getElementById('jm-ai-host').shadowRoot;
+    return {
+      ft: h.querySelector('[data-ref="ft"]').textContent,
+      cards: Array.from(h.querySelectorAll('.q .q-hd .msg')).map((m) => m.textContent),
+    };
+  });
+  ok('点完跑完整流程并给出结论', /完成|已提交/.test(afterFlow.ft), afterFlow.ft);
+  ok('没有提交按钮时如实标出问题', afterFlow.cards.some((c) => /提交失败|fail/i.test(c)), afterFlow.cards);
+
   await browser.close();
   console.log('\n结果：' + pass + ' 通过 / ' + fail + ' 失败');
-  process.exit(fail ? 1 : 0);
-})().catch((e) => {
+  process.exit(fail ? 1 : 0);})().catch((e) => {
   console.error('FATAL', e);
   process.exit(1);
 });

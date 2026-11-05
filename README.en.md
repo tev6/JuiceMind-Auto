@@ -37,10 +37,21 @@ Save, then hit **Test connection**.
 
 | I want to… | Click |
 | --- | --- |
+| **do the whole page in one go** | **Complete this page** — detect → generate → fill → submit, question by question |
 | answer every question on the page | `Scan page` → `Generate all` → `Fill all` |
 | answer just one | `Generate` → `Fill` on that card |
 | skim a tutorial page | **Summary** tab -> Summarize page |
 | ask about a tutorial page | switch to the **Chat** tab |
+
+**Complete this page** (new in v1.12.0): the full-width button at the top of the Solve tab. For every question it fills the answer, clicks submit, waits for the site to grade it, and closes the result popup that blocks the next question. Once an answer is submitted it cannot be changed, so the plugin reports the outcome of every question:
+
+| Card badge | Meaning |
+| --- | --- |
+| `submitted` | Submitted, and the site marked it correct |
+| `submitted, incorrect` | Submitted, but the site marked the answer incorrect (it cannot be changed any more) |
+| `submit failed` | Not submitted (no button / button still disabled / API error) — the card says why |
+
+Generation still uses one request for the whole page (saves tokens); only filling and submitting are done per question.
 
 Shortcuts: `Alt + J` (`⌥ J` on macOS) show/hide · `Alt + Enter` generate all · `Alt + Shift + S` scan.
 
@@ -78,7 +89,7 @@ Supported question types: multiple choice / multi-select / short answer / essay 
 - How the site is scraped and written to: [notes/site-analysis.md](notes/site-analysis.md)
 - After editing `src/`, run `node scripts/build.mjs`; CI fails if the bundle and sources drift apart
 - Installs auto-update: the header carries `@updateURL`, so Tampermonkey pulls a new build whenever the version changes
-- Local tests: `npm i` then `npm test` (jsdom, 139 checks) and `npm run test:ui` (drag / hide / streaming, needs a local Chrome)
+- Local tests: `npm i` then `npm test` (jsdom, 154 checks) and `npm run test:ui` (drag / hide / streaming / one-click flow, needs a local Chrome)
 - Real-site checks and screenshots: put item IDs in `test/items.local.json` (template: `test/items.example.json`; that file is gitignored), then run `node test/real.js` / `node test/shots-real.js`
 
 ## Contributing
@@ -87,6 +98,7 @@ Tested against one APCSP course only — other JuiceMind courses are not verifie
 
 ## Changelog
 
+- **1.12.0** — **Complete this page**: a new full-width primary button at the top of the Solve tab runs the whole flow (detect → generate → fill → submit), with the same pipeline for every question. Auto-submit now handles the MUI result popup the site shows after submitting (grading spinner → result panel): it waits for the verdict, then closes it — the next question cannot be submitted while it is open. An answer cannot be changed once submitted, so each question's outcome is reported on its card (submitted / submitted-but-incorrect / submit failed). Also fixes a real bug: the site pre-checks the first option of every question, so clicking the already-checked one fires no change event, the site state never updates and the submit button stays disabled — the plugin now unchecks first, then clicks.
 - **1.11.1** — maintenance: dropped the `*.juicemind.com` wildcard from `@match`, so the script only runs on the app hosts `play.juicemind.com` / `classes.juicemind.com` and no longer injects a panel on the marketing site; the `@author` placeholder is now `tev6`; README test count corrected to 139; the CI workflow lost its UTF-8 BOM; new header-consistency test (version in three places + `@match` scope).
 - **1.11.0** — batch answering: the whole page in one request (toggle in Settings; off = per-question as before). Questions the batch does not return are marked failed with a **Regenerate** action on the card. Prompt slimmed (system 500→240 tokens). On a 5-question page: 1966→587 input tokens (−70%).
 - **1.10.0** — token diet: context is now trimmed per question (multiple-choice sends no page body; long pages send only the passage around the question; default cap 6000→2400 chars), explanations are off by default (toggle in Advanced), and max_tokens is capped per question type (120 for MCQ). Measured: about −90% for MCQ, −55% for short answer.
