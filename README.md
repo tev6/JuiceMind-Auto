@@ -60,7 +60,7 @@ If the one-click install doesn't work, or you'd rather look at the code before r
 4. Delete the template, paste, then save (Ctrl+S / Cmd+S).
 5. Open any JuiceMind lesson page.
 
-> A script you paste in still updates itself — the header carries `@updateURL`, so Tampermonkey pulls the new version on its own.
+> A script you paste in still updates itself — the header carries `@updateURL`, so Tampermonkey pulls the new version on its own. If it doesn't, open the script's **Settings** tab and tick "Check for updates" — see the FAQ.
 
 > The script only runs on the app domains `play.juicemind.com` and `classes.juicemind.com`. The marketing site `juicemind.com` has nothing but an intro page, so no panel is injected there.
 
@@ -95,6 +95,8 @@ Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse / expand the panel · `Alt + Ente
 
 **Tampermonkey asks to allow a cross-origin resource** — click `Always allow domain` for that one API domain, or `Always allow` to stop seeing it. The script declares its cross-origin permission, so this only shows up on an old copy of the script or a strict Tampermonkey setting. See "Configure".
 
+**The script didn't update itself** — Tampermonkey checks `@updateURL` about once a day, and it asks before applying an update, so a new version can sit unnoticed for a while. To pull it right now: open the Tampermonkey dashboard and use **Check for updates** on this script. If you installed the script by pasting it in yourself, open the script's **Settings** tab too and make sure "Check for updates" is ticked and the Update URL is the raw link.
+
 **The panel never appears** — the script isn't enabled, or you're not on `play.juicemind.com` / `classes.juicemind.com`. Refresh and press `Alt + J`.
 
 **401 / 403** — the key or the Base URL is wrong.
@@ -124,6 +126,7 @@ Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse / expand the panel · `Alt + Ente
 - `src/part1..6.js` are the source shards; merged together they become `juicemind-ai-assistant.user.js`
 - How the script picks elements and how it writes into the editor: see [notes/site-analysis.md](notes/site-analysis.md)
 - After editing `src/`, run `node scripts/build.mjs` to rebuild the bundle; CI checks that the two match
+- Release loop: `node scripts/build.mjs --bump patch` bumps `@version`, `VERSION` and `package.json` together and rebuilds. CI fails the push if the bundle changed without a version bump — Tampermonkey only looks at the version number, so an unbumped release never reaches users
 - Students update automatically: the script header carries `@updateURL`, and Tampermonkey pulls the new version whenever the version number changes
 - Local tests: `npm i` → `npm test` (154 jsdom cases), `npm run test:ui` (drag / hide / streaming / one-click flow — needs a local Chrome)
 - README images: `npm run shots` renders them from a local mock page, so they carry no personal data

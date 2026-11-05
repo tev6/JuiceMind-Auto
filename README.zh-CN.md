@@ -62,7 +62,7 @@
 4. 删掉模板，粘贴，保存（Ctrl+S / Cmd+S）。
 5. 打开JuiceMind的任意课程页。
 
-> 手动粘贴的脚本照样能自动更新——脚本头带 `@updateURL`，Tampermonkey 会自己拉新版。
+> 手动粘贴的脚本照样能自动更新——脚本头带 `@updateURL`，Tampermonkey 会自己拉新版。要是没更新，去脚本的「设置」页勾上「检查更新」，见「常见问题」。
 
 > 脚本只在应用端域名 `play.juicemind.com` 与 `classes.juicemind.com` 运行；营销站 `juicemind.com` 只有介绍页，不会注入面板。
 
@@ -97,6 +97,8 @@
 
 **Tampermonkey 弹「跨域资源」授权窗** — 点 `Always allow domain` 放行这个 API 域名，或者点 `Always allow` 以后不再看到。脚本已经声明了跨域访问权限，只有装的是老版本脚本、或者 Tampermonkey 设成严格模式时才会弹。见「配置」。
 
+**脚本没有自动更新** — Tampermonkey 大约一天才查一次 `@updateURL`，而且查到之后还要你点确认才会替换，所以新版本很容易被漏掉。想立刻拉最新版：打开 Tampermonkey 面板，对这个脚本点「检查更新」。如果是手动粘贴安装的，再打开脚本的「设置」页，确认勾上了「检查更新」，并且 Update URL 填的是那条 raw 链接。
+
 **面板没出现** — 脚本没启用，或不在 `play.juicemind.com` / `classes.juicemind.com` 下。刷新后按 `Alt + J`。
 
 **401 / 403** — Key 或者 Base URL 填错
@@ -126,6 +128,7 @@
 - `src/part1..6.js` 为源码分片，合并后便是 `juicemind-ai-assistant.user.js`
 - 站点怎么选元素、怎么写进编辑器：见 [notes/site-analysis.md](notes/site-analysis.md)
 - 改完 `src/` 后运行 `node scripts/build.mjs` 重新生成 bundle；CI 会校验两者是否一致
+- 发布循环：`node scripts/build.mjs --bump patch` 一次性改 `@version`、`VERSION`、`package.json` 并重建 bundle。CI 会在「bundle 变了但版本号没变」时拦下这次推送——Tampermonkey 只认版本号，没升号的发布学生端永远收不到
 - 学生端会自动升级：脚本头带 `@updateURL`，Tampermonkey 每次检查到版本号变化就拉新版
 - 本地测试：`npm i` → `npm test`（jsdom 154 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式 / 一键全流程，需要本机 Chrome）
 - 文档配图：`npm run shots` 用本地模拟页生成，不含任何个人信息

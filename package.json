@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "bump": "node scripts/build.mjs --bump",
     "check": "node scripts/build.mjs --check",
     "test": "node test/run.js",
     "test:ui": "node test/ui.js",

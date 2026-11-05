@@ -11,11 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
       - name: bundle 与 src 一致
         run: node scripts/build.mjs --check
+      - name: bundle 变了就必须升版本号
+        if: github.event_name == 'push'
+        run: node scripts/check-version-bump.mjs "${{ github.event.before }}"
       - name: userscript 头部完整
         run: |
           head -n 12 juicemind-ai-assistant.user.js
