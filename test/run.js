@@ -625,6 +625,19 @@ const doc = window.document;
   const sysLen = J.Solvers.systemPrompt().length;
   ok('精简后的 system prompt 明显变短', sysLen < 520, sysLen);
 
+  console.log('\n【24】userscript 头部与版本一致性');
+  const head = script.split('// ==/UserScript==')[0];
+  const mVersion = (head.match(/^\/\/ @version\s+(\S+)/m) || [])[1];
+  const mAuthor = (head.match(/^\/\/ @author\s+(.+)$/m) || [])[1];
+  const matches = (head.match(/^\/\/ @match\s+(\S+)/gm) || []).map((s) => s.replace(/^\/\/ @match\s+/, '').trim());
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
+  ok('版本号三处一致（头部 / VERSION / package.json）', !!mVersion && mVersion === J.VERSION && mVersion === pkg.version, { head: mVersion, const: J.VERSION, pkg: pkg.version });
+  ok('@match 覆盖应用端 play 与 classes', matches.includes('https://play.juicemind.com/*') && matches.includes('https://classes.juicemind.com/*'), matches);
+  ok('@match 不再含营销站通配 *.juicemind.com', !matches.some((m) => /\/\*\.juicemind\.com\//.test(m)), matches);
+  ok('@author 不是占位符', !!mAuthor && mAuthor.trim().toLowerCase() !== 'you', mAuthor);
+  ok('头部仍带 @updateURL / @downloadURL', /^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\//m.test(head) && /^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\//m.test(head));
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {

@@ -17,6 +17,8 @@ A Tampermonkey userscript for [play.juicemind.com](https://play.juicemind.com). 
 
 3. Open any lesson page. The panel shows up bottom-right; if not, press `Alt + J`.
 
+> The script only runs on the app hosts `play.juicemind.com` and `classes.juicemind.com`. The marketing site `juicemind.com` has no questions, so no panel is injected there.
+
 ## Configure (~30 s)
 
 Open the **Settings** tab:
@@ -58,7 +60,7 @@ Supported question types: multiple choice / multi-select / short answer / essay 
 
 ## FAQ
 
-**No panel?** The script is disabled, or you are not on `*.juicemind.com`. Reload and press `Alt + J`.
+**No panel?** The script is disabled, or you are not on `play.juicemind.com` / `classes.juicemind.com`. Reload and press `Alt + J`.
 
 **401 / 403** — wrong key, or Base URL missing `/v1`.
 
@@ -76,7 +78,7 @@ Supported question types: multiple choice / multi-select / short answer / essay 
 - How the site is scraped and written to: [notes/site-analysis.md](notes/site-analysis.md)
 - After editing `src/`, run `node scripts/build.mjs`; CI fails if the bundle and sources drift apart
 - Installs auto-update: the header carries `@updateURL`, so Tampermonkey pulls a new build whenever the version changes
-- Local tests: `npm i` then `npm test` (jsdom, 87 checks) and `npm run test:ui` (drag / hide / streaming, needs a local Chrome)
+- Local tests: `npm i` then `npm test` (jsdom, 139 checks) and `npm run test:ui` (drag / hide / streaming, needs a local Chrome)
 - Real-site checks and screenshots: put item IDs in `test/items.local.json` (template: `test/items.example.json`; that file is gitignored), then run `node test/real.js` / `node test/shots-real.js`
 
 ## Contributing
@@ -85,6 +87,7 @@ Tested against one APCSP course only — other JuiceMind courses are not verifie
 
 ## Changelog
 
+- **1.11.1** — maintenance: dropped the `*.juicemind.com` wildcard from `@match`, so the script only runs on the app hosts `play.juicemind.com` / `classes.juicemind.com` and no longer injects a panel on the marketing site; the `@author` placeholder is now `tev6`; README test count corrected to 139; the CI workflow lost its UTF-8 BOM; new header-consistency test (version in three places + `@match` scope).
 - **1.11.0** — batch answering: the whole page in one request (toggle in Settings; off = per-question as before). Questions the batch does not return are marked failed with a **Regenerate** action on the card. Prompt slimmed (system 500→240 tokens). On a 5-question page: 1966→587 input tokens (−70%).
 - **1.10.0** — token diet: context is now trimmed per question (multiple-choice sends no page body; long pages send only the passage around the question; default cap 6000→2400 chars), explanations are off by default (toggle in Advanced), and max_tokens is capped per question type (120 for MCQ). Measured: about −90% for MCQ, −55% for short answer.
 - **1.9.1** — new average typing speed slider (15-120 WPM; the measured average tracks the setting); the whole header of an answer card now toggles expansion (keyboard Enter/Space too).

@@ -4,12 +4,11 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.11.0
+// @version      1.11.1
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
-// @author       you
+// @author       tev6
 // @match        https://play.juicemind.com/*
 // @match        https://classes.juicemind.com/*
-// @match        https://*.juicemind.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -19,6 +18,10 @@
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
+
+/* @match 只覆盖应用端域名（play / classes）。
+ * 营销站 juicemind.com 只有介绍页、没有题目，不再往那里注入面板。
+ * 以后若新增应用端子域名，在上面的 @match 里补一行即可。 */
 
 (function () {
   'use strict';
@@ -38,7 +41,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.11.0';
+  const VERSION = '1.11.1';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */

@@ -13,6 +13,8 @@
 
 3. 打开JuiceMind的任意课程页，右侧会出现面板。没看到就按 `Alt + J`。
 
+> 脚本只在应用端域名 `play.juicemind.com` 与 `classes.juicemind.com` 运行；营销站 `juicemind.com` 只有介绍页，不会注入面板。
+
 ## 配置（约 30 秒）
 
 点面板里的「设置」：
@@ -53,7 +55,7 @@
 
 ## 常见问题
 
-**面板没出现** — 脚本没启用，或不在 `*.juicemind.com` 下。刷新后按 `Alt + J`。
+**面板没出现** — 脚本没启用，或不在 `play.juicemind.com` / `classes.juicemind.com` 下。刷新后按 `Alt + J`。
 
 **401 / 403** — Key 或者 Base URL 填错
 
@@ -67,7 +69,7 @@
 - 站点怎么选元素、怎么写进编辑器：见 [notes/site-analysis.md](notes/site-analysis.md)
 - 改完 `src/` 后运行 `node scripts/build.mjs` 重新生成 bundle；CI 会校验两者是否一致
 - 学生端会自动升级：脚本头带 `@updateURL`，Tampermonkey 每次检查到版本号变化就拉新版
-- 本地测试：`npm i` → `npm test`（jsdom 87 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式，需要本机 Chrome）
+- 本地测试：`npm i` → `npm test`（jsdom 139 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式，需要本机 Chrome）
 - 真实页验收与截图：把条目 ID 填进 `test/items.local.json`（模板 `test/items.example.json`，该文件不进仓库），再跑 `node test/real.js` / `node test/shots-real.js`
 
 ## 贡献
@@ -78,6 +80,7 @@
 
 ## 更新记录
 
+- **1.11.1** — 维护版：`@match` 去掉 `*.juicemind.com` 通配，只在应用端 `play.juicemind.com` / `classes.juicemind.com` 运行，营销站不再注入面板；`@author` 占位符换成 `tev6`；README 测试数改为实际 139 项；CI 工作流去掉 UTF-8 BOM；新增头部一致性测试（版本三处一致 + `@match` 范围）。
 - **1.11.0** — 批量答题：一次请求答完整页（设置里可关，关掉即恢复逐题）；某题没返回时该卡片标红并显示「重新生成」，可单独重试；提示词精简（system 500→240 token）。5 题页面实测输入 1966→587 token（−70%）。
 - **1.10.0** — 省 token：上下文按题截取（选择题不再附整页正文，长页只取题干附近一段，默认上限 6000→2400 字）；解析默认关闭（高级设置里可开）；按题型收紧 max_tokens（选择题 120）。实测选择题单次约 −90%、简答题约 −55%。
 - **1.9.1** — 拟人写入新增「平均打字速度」滑块（15~120 WPM，平均速度会贴近设定值）；答题卡片右上角的展开按钮改为整个顶部区域都可点（含键盘 Enter/Space）。
