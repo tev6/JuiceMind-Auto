@@ -4,7 +4,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.12.0
+// @version      1.12.1
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       tev6
 // @match        https://play.juicemind.com/*
@@ -14,6 +14,14 @@
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @grant        unsafeWindow
+// @connect      api.openai.com
+// @connect      api.deepseek.com
+// @connect      api.moonshot.cn
+// @connect      openrouter.ai
+// @connect      api.x.ai
+// @connect      generativelanguage.googleapis.com
+// @connect      localhost
+// @connect      127.0.0.1
 // @connect      *
 // @run-at       document-idle
 // @noframes
@@ -22,6 +30,11 @@
 /* @match 只覆盖应用端域名（play / classes）。
  * 营销站 juicemind.com 只有介绍页、没有题目，不再往那里注入面板。
  * 以后若新增应用端子域名，在上面的 @match 里补一行即可。 */
+
+/* @connect 逐个列出内置服务商的域名，再留一条 @connect * 兜住自定义端点。
+ * Tampermonkey 官方建议两者并列：只写 @connect * 时，某些版本与
+ * 「@connect 模式：严格」设置下仍会逐次弹跨域授权窗；写全已知域名可避免。
+ * 换服务商或用本地 Ollama 时，靠 @connect * 放行。 */
 
 (function () {
   'use strict';
@@ -41,7 +54,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.12.0';
+  const VERSION = '1.12.1';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */

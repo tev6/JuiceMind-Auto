@@ -65,6 +65,24 @@ async function installMock(page) {
     window.fetch = async function (url, init) {
       const body = JSON.parse((init && init.body) || '{}');
       const joined = (body.messages || []).map((m) => m.content).join('\n');
+      // 批量答题（v1.11.0 起）：一次请求答整页，模型要回一个答案数组
+      if (/请一次给出以上/.test(joined)) {
+        const heads = joined.match(/【第 \d+ 题】类型：[^\n]+/g) || [];
+        const list = heads.map((h, idx) => {
+          const label = (h.split('类型：')[1] || '').trim();
+          let one;
+          if (label === '选择题' || label === '多选题') {
+            one = { type: 'mcq', answers: ['A'], explanation: 'while 循环在条件为真时持续重复，for 循环遍历序列。' };
+          } else if (label === '编程') {
+            one = { type: 'code', answers: ['def add(a, b):\n    return a + b'], explanation: '直接返回两数之和。' };
+          } else {
+            one = { type: 'short', answers: ['如果循环变量在循环体内从不改变，条件会一直为真，循环就永远不会结束。'], explanation: '' };
+          }
+          return Object.assign({ i: idx + 1 }, one);
+        });
+        const j = { id: 'mock', model: 'mock-model', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(list) } }], usage: { total_tokens: 42 } };
+        return new Response(JSON.stringify(j), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       if (/quick-study notes/.test(joined)) {
         const en = [
           '## One-line summary',

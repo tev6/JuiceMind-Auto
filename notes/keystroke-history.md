@@ -26,7 +26,7 @@
 
 ```json
 {"t":"push","channel":"collab-ide:…/main.py","version":63,
- "transforms":[{"effects":[],"clientID":"q0HEWmcv…_Joey Wu",
+ "transforms":[{"effects":[],"clientID":"<随机前缀>_<学生显示名>",
                 "changes":[5,[0,"#"],…]}]}
 ```
 

@@ -4,6 +4,38 @@
 
 A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it finds the questions on the page, calls a large language model API to generate answers, then fills them back in and submits everything automatically.
 
+[![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-1.12.1-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+![The panel: questions scanned and answers generated](docs/img/panel-en.png)
+
+## Contents
+
+- [Features](#features)
+- [Install](#install)
+- [Configure](#configure)
+- [Usage](#usage)
+- [FAQ](#faq)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Changelog](#changelog)
+- [License and Disclaimer](#license-and-disclaimer)
+
+## Features
+
+| Feature | What it does |
+| --- | --- |
+| **Complete the whole page** | detect → generate → fill in → submit, the same flow for every question |
+| **Batch answers** | one request answers the whole page — 70% less input token on a 5-question page |
+| **Token savings** | context trimmed per question, parsing off by default, max tokens follow the question type |
+| **Human-like typing** | code questions are typed into the editor character by character, with a random pace and pauses — not one big replacement |
+| **Quick-study notes** | a tutorial page condenses into notes: one-line summary, key points, glossary, pitfalls, self-check |
+| **Chat** | Markdown rendering, streaming replies, one-click copy of code blocks |
+| **Chinese / English switch** | one toggle in the title bar switches the UI text and the model output language together |
+| **Question types** | multiple choice / multi-select / short answer / essay / fill-in-blank, plus CodeMirror coding exercises and the embedded IDE |
+| **Floating panel** | drag it around, collapse it into a round button, and watch the session token usage in the footer |
+
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser (Chrome / Edge / Firefox).
@@ -15,7 +47,7 @@ A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it f
 
 > The script only runs on the app domains `play.juicemind.com` and `classes.juicemind.com`. The marketing site `juicemind.com` has nothing but an intro page, so no panel is injected there.
 
-## Configure (about 30 seconds)
+## Configure
 
 Open "Settings" in the panel:
 
@@ -27,13 +59,17 @@ Open "Settings" in the panel:
 
 Click "Save", then "Test connection". Once it says success, you're good.
 
-> Any OpenAI-compatible API works: OpenAI / DeepSeek / Moonshot / OpenRouter / local Ollama.
+> Any OpenAI-compatible API works: OpenAI / DeepSeek / Moonshot / OpenRouter / xAI / Gemini / local Ollama.
+
+**Tampermonkey pops up a dialog when you test the connection?** It normally shouldn't — the script already declares its cross-origin permission. If it does, your Tampermonkey is set to strict mode, or you're running an old copy of the script: click **Always allow domain** to allow just that one API domain, or **Always allow** to stop seeing it.
+
+**Advanced settings** live in a collapsed section at the bottom of the settings page — temperature, max tokens, context length, extra prompt, explanation language, and "Set model output language separately". Unchecked by default, the model output follows the language switch in the top right; check it to pick the output language on its own.
 
 ## Usage
 
 | Scenario | How |
 | --- | --- |
-| **Complete the whole page** | Click **"Complete this page"**: detect → generate → fill in → submit, the same flow for every question |
+| **Complete the whole page** | Click **"Complete this page"** |
 | Solve many questions | `Scan page` → `Generate all` → `Fill all` |
 | Solve one question | `Scan page` → on that question's card click `Generate` → `Fill` |
 | Tutorial-only page | Switch to "Summary" for quick-study notes in one click, or ask about a concept in "Chat" |
@@ -46,21 +82,21 @@ A `submit failed` badge means it did not go through (no button found, the button
 
 Generation still answers the whole page in one request; only filling in and submitting happen question by question.
 
-Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse/expand · `Alt + Enter` generate all · `Alt + Shift + S` scan.
+### Shortcuts
 
-**One switch for Chinese and English**: the `中 / EN` toggle in the title bar switches the whole plugin (UI text + model output language) at once, so you don't have to change settings item by item.
+| Keys | What it does |
+| --- | --- |
+| `Alt + J` (`⌥ J` on Mac) | collapse / expand the panel |
+| `Alt + Enter` | generate all |
+| `Alt + Shift + S` | scan the page |
 
-**Summary**: switch to the "Summary" tab and click "Summarize page". The notes show up while they are generated (streaming), condensing this lesson into quick-study notes — one-line summary, key points, glossary, pitfalls, ready to copy.
+### Panel details
 
-If the scan is collapsed, click the area above it to expand and see the full question, every option, and the complete answer.
+If the scan is collapsed, click the area above it to expand and see the full question, every option, and the complete answer
 
 The footer shows the token usage of this session. While a request is running, click "Stop" on the right of the footer to interrupt it; whatever was already generated stays.
 
 The panel can be dragged: drag the title bar or the bottom edge to move it, and when collapsed it becomes a round button you can also drag.
-
-Supported question types: multiple choice / multi-select / short answer / essay / fill-in-blank, plus CodeMirror coding exercises and the embedded IDE.
-
-**Advanced settings**: a collapsed section at the bottom of the settings page — temperature, max tokens, context length, extra prompt, explanation language, and "Set model output language separately". Unchecked by default, the model output follows the language switch in the top right; check it to pick the output language on its own.
 
 ## FAQ
 
@@ -72,13 +108,18 @@ Supported question types: multiple choice / multi-select / short answer / essay 
 
 **Nothing gets scanned** — wait for the page to finish loading, then scan.
 
-## Want to modify the script?
+**Tampermonkey asks to allow a cross-origin resource** — click `Always allow domain` for that one API domain, see "Configure".
+
+**Answers can't be changed after submission** — that's how the site works. `submitted, incorrect` means it went through but the answer was wrong; all you can do is know the result.
+
+## Development
 
 - `src/part1..6.js` are the source shards; merged together they become `juicemind-ai-assistant.user.js`
 - How the script picks elements and how it writes into the editor: see [notes/site-analysis.md](notes/site-analysis.md)
 - After editing `src/`, run `node scripts/build.mjs` to rebuild the bundle; CI checks that the two match
 - Students update automatically: the script header carries `@updateURL`, and Tampermonkey pulls the new version whenever the version number changes
 - Local tests: `npm i` → `npm test` (154 jsdom cases), `npm run test:ui` (drag / hide / streaming / one-click flow — needs a local Chrome)
+- README images: `npm run shots` renders them from a local mock page, so they carry no personal data
 - Real-page acceptance and screenshots: put the item IDs into `test/items.local.json` (template: `test/items.example.json`; that file is not committed), then run `node test/real.js` / `node test/shots-real.js`
 
 ## Contributing
@@ -89,24 +130,16 @@ Pull requests and issues are welcome — to add support for other courses, repor
 
 ## Changelog
 
+The full history lives in [CHANGELOG.en.md](CHANGELOG.en.md).
+
+- **1.12.1** — completed the `@connect` domain declarations, so Tampermonkey stops asking for cross-origin permission on known providers
 - **1.12.0** — **new "Complete this page"** — detect → generate → fill in → submit, looping over every question
 - **1.11.1** — small maintenance pass, minor fixes
 - **1.11.0** — batch answering: one request answers the whole page (no auto-submit yet); the prompt kept shrinking (500→240 tokens). On a 5-question page the input dropped from 1966 to 587 tokens (−70%).
 - **1.10.0** — **token savings**: the context is trimmed per question, parsing is off by default, max tokens follow the question type. Measured roughly −90% per multiple-choice question and −55% per short answer.
-- **1.9.1** — human-like typing gained an "average typing speed" slider; the expand button on an answer card now makes the whole top area clickable.
-- **1.9.0** — **new "human-like typing" for code questions** — it types into the editor character by character (random pace, pauses at line ends, other human-ish details), so the collaboration stream shows many small increments instead of one big replacement; can be turned off in settings.
-- **1.8.1** — fixed the double-layered tab highlight and the fake slide-in animation when switching languages.
-- **1.8.0** — added animations and a toggle for them in settings. JSON output mode and console logs moved into advanced settings. Adjusted the scrollbar position.
-- **1.7.1** — fixed the text/slider misalignment on the language switch and the summary still mixing in Chinese in English mode; answers follow the output language, explanations follow the explanation language.
-- **1.7.0** — added the Chinese/English switch, removed the stray "–" button, restructured settings with an "Advanced" section, and made the summary stream.
-- **1.6.0** — added the "Summary" tab, `⌥J` on Mac, a draggable round button when collapsed, and a vector icon in the title bar.
-- **1.5.0** — **automatic updates for students**, automatic retry on failed requests, token usage and a "Stop" button in the footer, plus `scripts/build.mjs` with CI checking the bundle against src.
-- **1.4.0** — streaming chat replies, a draggable panel, a "hide panel" setting, and an English README.
-- **1.3.0** — **Markdown rendering in chat**, one-click copy for chat code blocks and answer cards, expandable scan results, and more provider models.
-- **1.2.0** — fixed model-name detection
-- **1.1.0** — fixed the coding exercise page not being scanned
-- **1.0.0** — **first release**.
 
-## Disclaimer
+## License and Disclaimer
+
+MIT License — see [LICENSE](LICENSE).
 
 For study and discussion only. Please follow your school's academic integrity rules.
