@@ -38,6 +38,8 @@ A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it f
 
 ## Install
 
+### Option 1 — one click
+
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in your browser (Chrome / Edge / Firefox).
 2. Click the link below. Tampermonkey opens an install page — press "Install":
 
@@ -45,62 +47,55 @@ A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it f
 
 3. Open any JuiceMind lesson page. The panel shows up on the right side. If you don't see it, press `Alt + J`.
 
+### Option 2 — paste it in yourself
+
+If the one-click install doesn't work, or you'd rather look at the code before running it:
+
+1. Open the script source in your browser:
+
+   **https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js**
+
+2. Select all and copy — including the `// ==UserScript==` header at the top.
+3. In Tampermonkey: toolbar icon → **Create a new script**.
+4. Delete the template, paste, then save (Ctrl+S / Cmd+S).
+5. Open any JuiceMind lesson page.
+
+> A script you paste in still updates itself — the header carries `@updateURL`, so Tampermonkey pulls the new version on its own.
+
 > The script only runs on the app domains `play.juicemind.com` and `classes.juicemind.com`. The marketing site `juicemind.com` has nothing but an intro page, so no panel is injected there.
 
 ## Configure
 
 Open "Settings" in the panel:
 
-| What to fill in | Example |
+| Field | Example |
 | --- | --- |
-| API Base URL | `https://api.deepseek.com/v1` (or pick a "Provider preset" and it fills itself) |
+| API Base URL | `https://api.deepseek.com/v1` — or pick a "Provider preset" and it fills itself |
 | API Key | `sk-...` (your own key) |
-| Model | e.g. `deepseek-flash` |
+| Model | `deepseek-flash` |
 
-Click "Save", then "Test connection". Once it says success, you're good.
+Click **Save**, then **Test connection**. You're set.
 
 > Any OpenAI-compatible API works: OpenAI / DeepSeek / Moonshot / OpenRouter / xAI / Gemini / local Ollama.
-
-**Tampermonkey pops up a dialog when you test the connection?** It normally shouldn't — the script already declares its cross-origin permission. If it does, your Tampermonkey is set to strict mode, or you're running an old copy of the script: click **Always allow domain** to allow just that one API domain, or **Always allow** to stop seeing it.
-
-**Advanced settings** live in a collapsed section at the bottom of the settings page — temperature, max tokens, context length, extra prompt, explanation language, and "Set model output language separately". Unchecked by default, the model output follows the language switch in the top right; check it to pick the output language on its own.
 
 ## Usage
 
 | Scenario | How |
 | --- | --- |
-| **Complete the whole page** | Click **"Complete this page"** |
+| **Complete the whole page** | Click **"Complete this page"** — detect → generate → fill in → submit, question by question |
 | Solve many questions | `Scan page` → `Generate all` → `Fill all` |
-| Solve one question | `Scan page` → on that question's card click `Generate` → `Fill` |
-| Tutorial-only page | Switch to "Summary" for quick-study notes in one click, or ask about a concept in "Chat" |
+| Solve one question | `Scan page` → on that card click `Generate` → `Fill` |
+| Tutorial-only page | Switch to **Summary** for quick-study notes, or ask a question in **Chat** |
 
-**Complete this page** (since v1.12.0): the full-width button at the top of the quiz page. For every question it does four things — fill in the answer, click submit, wait for the result, close the popup.
-**Note**: the AI you call can be wrong too. Answers can't be changed after submission, but the script still tells you when one comes back wrong.
+Every question's outcome is reported back, so you always know whether the site accepted the answer.
 
-A `submitted, incorrect` badge means the submission went through but the site marked the answer wrong.
-A `submit failed` badge means it did not go through (no button found, the button was still disabled, an API error, and so on).
-
-Generation still answers the whole page in one request; only filling in and submitting happen question by question.
-
-### Shortcuts
-
-| Keys | What it does |
-| --- | --- |
-| `Alt + J` (`⌥ J` on Mac) | collapse / expand the panel |
-| `Alt + Enter` | generate all |
-| `Alt + Shift + S` | scan the page |
-
-### Panel details
-
-If the scan is collapsed, click the area above it to expand and see the full question, every option, and the complete answer
-
-The footer shows the token usage of this session. While a request is running, click "Stop" on the right of the footer to interrupt it; whatever was already generated stays.
-
-The panel can be dragged: drag the title bar or the bottom edge to move it, and when collapsed it becomes a round button you can also drag.
+Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse / expand the panel · `Alt + Enter` generate all · `Alt + Shift + S` scan the page.
 
 ## FAQ
 
-**No panel appears** — the script isn't enabled, or you're not on `play.juicemind.com` / `classes.juicemind.com`. Refresh and press `Alt + J`.
+**Tampermonkey asks to allow a cross-origin resource** — click `Always allow domain` for that one API domain, or `Always allow` to stop seeing it. The script declares its cross-origin permission, so this only shows up on an old copy of the script or a strict Tampermonkey setting. See "Configure".
+
+**The panel never appears** — the script isn't enabled, or you're not on `play.juicemind.com` / `classes.juicemind.com`. Refresh and press `Alt + J`.
 
 **401 / 403** — the key or the Base URL is wrong.
 
@@ -108,9 +103,21 @@ The panel can be dragged: drag the title bar or the bottom edge to move it, and 
 
 **Nothing gets scanned** — wait for the page to finish loading, then scan.
 
-**Tampermonkey asks to allow a cross-origin resource** — click `Always allow domain` for that one API domain, see "Configure".
+**What do the card badges mean?**
 
-**Answers can't be changed after submission** — that's how the site works. `submitted, incorrect` means it went through but the answer was wrong; all you can do is know the result.
+| Badge | Meaning |
+| --- | --- |
+| `submitted` | it went through, and the site accepted the answer (or is waiting for the teacher) |
+| `submitted, incorrect` | it went through, but the site marked the answer wrong |
+| `submit failed` | it did not go through (no button found, the button was still disabled, an API error) — the card spells out the reason |
+
+**Answers can't be changed after submission** — that's how the site works. `submitted, incorrect` means it went through but the answer was wrong; all you can do is know the result. The AI you call can be wrong too, which is exactly why every question's outcome is reported back.
+
+**What does "Complete this page" actually do?** For every question: fill in the answer, click submit, wait for the result, close the popup. Generation is still a single request for the whole page; only filling in and submitting happen question by question.
+
+**Where are the advanced settings?** At the bottom of the settings page, in a collapsed section — temperature, max tokens, context length, extra prompt, explanation language, and "Set model output language separately" (unchecked by default, so the model output follows the language switch in the top right).
+
+**How do I expand a collapsed scan, watch token usage, or move the panel?** Click the area above a collapsed scan to expand it and see the full question, every option, and the complete answer. The footer shows this session's token usage, with a "Stop" button while a request is running — whatever was already generated stays. Drag the panel by its title bar or bottom edge; collapsed, it becomes a round button you can also drag.
 
 ## Development
 
