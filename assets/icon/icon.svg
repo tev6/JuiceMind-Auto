@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="JuiceMind Assistant">
+  <title>JuiceMind Assistant</title>
+  <!-- 两行正在被写下的答案：所有坐标取偶数，16px 下正好落在整像素上 -->
+  <rect x="2" y="10" width="16" height="4" rx="2" fill="currentColor"/>
+  <rect x="2" y="18" width="12" height="4" rx="2" fill="currentColor"/>
+  <!-- 斜切光标：笔尖落纸的角度，暗示「正在写」，不是静态文本图标 -->
+  <path d="M22 6h4l2 20h-4z" fill="currentColor"/>
+</svg>

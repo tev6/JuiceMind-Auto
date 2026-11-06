@@ -1,11 +1,15 @@
 [中文](README.zh-CN.md) | English
 
+<p align="center">
+  <img src="assets/icon/png/icon-app-128.png" width="96" alt="JuiceMind AI 答题助手">
+</p>
+
 # JuiceMind AI 答题助手
 
 给 [play.juicemind.com](https://play.juicemind.com) 用的 Tampermonkey 脚本：识别页面上的题目，调用大模型 API 生成答案，再全流程、全自动地填回页面并提交。
 
 [![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.12.1-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![Version](https://img.shields.io/badge/version-1.12.2-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![插件面板：扫描出题目并生成答案](docs/img/panel.png)
@@ -132,6 +136,7 @@
 - 学生端会自动升级：脚本头带 `@updateURL`，Tampermonkey 每次检查到版本号变化就拉新版
 - 本地测试：`npm i` → `npm test`（jsdom 154 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式 / 一键全流程，需要本机 Chrome）
 - 文档配图：`npm run shots` 用本地模拟页生成，不含任何个人信息
+- 图标：设计稿在 `assets/icon/`——改 SVG 时保持坐标取偶数，再跑 `node assets/icon/render.cjs` 重新生成 PNG
 - 真实页验收与截图：把条目 ID 填进 `test/items.local.json`（模板 `test/items.example.json`，该文件不进仓库），再跑 `node test/real.js` / `node test/shots-real.js`
 
 ## 贡献
@@ -144,6 +149,7 @@
 
 完整历史见 [CHANGELOG.md](CHANGELOG.md)。
 
+- **1.12.2** — 新插件图标：两行正在被写下的文字 + 一支斜切光标，替换原来的四角星；Tampermonkey 面板里的脚本图标同步更新
 - **1.12.1** — 补全 `@connect` 域名声明，Tampermonkey 不再对已知服务商弹跨域授权窗
 - **1.12.0** — **新增一键完成本页功能**——全流程从检测->生成->填入->提交，循环遍历所有题目
 - **1.11.1** — 简单维护，修小错误

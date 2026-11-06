@@ -22,11 +22,14 @@
   const IS_MAC = /mac|iphone|ipad|ipod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '');
   const KB = (k) => (IS_MAC ? '⌥' + k : 'Alt+' + k);
 
-  /** 站内自绘图标：四角星（后续可整体替换成设计稿） */
-  const LOGO_SVG =
-    '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">' +
-    '<path fill="currentColor" d="M12 2.6l1.9 5.3 5.3 1.9-5.3 1.9L12 17l-1.9-5.3L4.8 9.8l5.3-1.9L12 2.6z"/>' +
-    '<path fill="currentColor" opacity=".75" d="M18.6 14.4l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9.9-2.5z"/>' +
+  /** 插件图标：两行正在被写下的文字 + 一支斜切光标。
+   *  设计稿在 assets/icon/（含 16px 像素对位版与各尺寸 PNG）。
+   *  图形用 currentColor，白色描边跟着 .logo / .fab 的紫色渐变底走。 */
+  const LOGO_SVG = (size) =>
+    '<svg viewBox="0 0 32 32" width="' + size + '" height="' + size + '" fill="currentColor" aria-hidden="true" focusable="false">' +
+    '<rect x="2" y="10" width="16" height="4" rx="2"/>' +
+    '<rect x="2" y="18" width="12" height="4" rx="2"/>' +
+    '<path d="M22 6h4l2 20h-4z"/>' +
     '</svg>';
 
   const CSS = `
@@ -680,7 +683,7 @@ details.adv .adv-body { padding-top: 6px; }
         <div class="panel">
           <div class="hd" data-drag="handle" title="${L('按住拖动', 'Drag to move')}">
             <span class="drag-grip"></span>
-            <div class="logo">${LOGO_SVG}</div>
+            <div class="logo">${LOGO_SVG(19)}</div>
             <div class="hd-txt">
               <div class="ttl">${L('JuiceMind 助手', 'JuiceMind Assistant')}</div>
               <div class="sub" data-ref="sub">${L('未配置 API', 'API not configured')}</div>
@@ -733,7 +736,7 @@ details.adv .adv-body { padding-top: 6px; }
           <div class="ft"><span class="dot" data-ref="dot"></span><span class="ft-txt" data-ref="ft">${L('就绪', 'Ready')}</span><span class="ft-usage" data-ref="usage"></span><button class="ft-stop" data-ref="btn-stop" hidden>${L('停止', 'Stop')}</button></div>
           <div class="toast" data-ref="toast"></div>
         </div>
-        <button class="fab" title="${L('打开助手', 'Open assistant')} (${KB('J')})">${LOGO_SVG}</button>
+        <button class="fab" title="${L('打开助手', 'Open assistant')} (${KB('J')})">${LOGO_SVG(26)}</button>
       `;
 
       this.$(this.root, wrap);

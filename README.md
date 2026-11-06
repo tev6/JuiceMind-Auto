@@ -1,11 +1,15 @@
 [中文](README.zh-CN.md) | English
 
+<p align="center">
+  <img src="assets/icon/png/icon-app-128.png" width="96" alt="JuiceMind AI Answering Assistant">
+</p>
+
 # JuiceMind AI Answering Assistant
 
 A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it finds the questions on the page, calls a large language model API to generate answers, then fills them back in and submits everything automatically.
 
 [![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.12.1-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![Version](https://img.shields.io/badge/version-1.12.2-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![The panel: questions scanned and answers generated](docs/img/panel-en.png)
@@ -130,6 +134,7 @@ Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse / expand the panel · `Alt + Ente
 - Students update automatically: the script header carries `@updateURL`, and Tampermonkey pulls the new version whenever the version number changes
 - Local tests: `npm i` → `npm test` (154 jsdom cases), `npm run test:ui` (drag / hide / streaming / one-click flow — needs a local Chrome)
 - README images: `npm run shots` renders them from a local mock page, so they carry no personal data
+- Icon: the design lives in `assets/icon/` — edit the SVG there, keep the coordinates even, then `node assets/icon/render.cjs` regenerates the PNGs
 - Real-page acceptance and screenshots: put the item IDs into `test/items.local.json` (template: `test/items.example.json`; that file is not committed), then run `node test/real.js` / `node test/shots-real.js`
 
 ## Contributing
@@ -142,6 +147,7 @@ Pull requests and issues are welcome — to add support for other courses, repor
 
 The full history lives in [CHANGELOG.en.md](CHANGELOG.en.md).
 
+- **1.12.2** — new plugin icon: two lines of text being written plus a slanted cursor, replacing the old four-pointed star. The icon in the Tampermonkey listing now matches
 - **1.12.1** — completed the `@connect` domain declarations, so Tampermonkey stops asking for cross-origin permission on known providers
 - **1.12.0** — **new "Complete this page"** — detect → generate → fill in → submit, looping over every question
 - **1.11.1** — small maintenance pass, minor fixes

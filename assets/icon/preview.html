@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>JuiceMind 助手 · 图标</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; padding: 32px; background: #f6f5fb; color: #1b1b22;
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: #6b6b7a; font-size: 13px; margin: 0 0 26px; max-width: 760px; line-height: 1.6; }
+  h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #6b6b7a; margin: 30px 0 12px; }
+  .row { display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; }
+  .item { text-align: center; }
+  .cap { font-size: 10.5px; color: #6b6b7a; margin-top: 7px; }
+  .px { image-rendering: pixelated; }
+  .panel { width: 392px; border-radius: 20px; overflow: hidden;
+           background: linear-gradient(155deg, rgba(255,255,255,.86) 0%, rgba(255,255,255,.7) 100%);
+           border: 1px solid rgba(79,70,229,.18);
+           box-shadow: 0 18px 50px -12px rgba(79,70,229,.28), 0 2px 8px rgba(0,0,0,.06);
+           backdrop-filter: blur(24px) saturate(180%); }
+  .panel.dark { background: linear-gradient(155deg, rgba(28,28,32,.9) 0%, rgba(16,16,18,.82) 100%);
+                border-color: rgba(79,70,229,.34); color: #f2f2f7; }
+  .hd { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
+  .logo { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center;
+          background: linear-gradient(135deg,#4f46e5,#9333ea); box-shadow: 0 6px 16px -8px rgba(79,70,229,.9); }
+  .hd-txt .t { font-size: 13.5px; font-weight: 600; }
+  .hd-txt .s { font-size: 11px; color: #8a8a99; }
+  .tabs { display: flex; gap: 4px; padding: 0 14px 10px; }
+  .tab { flex: 1; text-align: center; padding: 6px 0; border-radius: 10px; font-size: 12.5px; color: #8a8a99; }
+  .tab.on { background: rgba(79,70,229,.09); color: #4f46e5; font-weight: 600; }
+  .fab { width: 52px; height: 52px; border-radius: 18px; display: grid; place-items: center;
+         background: linear-gradient(135deg,#4f46e5,#9333ea);
+         box-shadow: 0 10px 24px -10px rgba(79,70,229,.9), inset 0 1px 0 rgba(255,255,255,.25); }
+  .grid-16 { display: flex; gap: 10px; align-items: flex-end; }
+  .swatch { width: 128px; height: 128px; border-radius: 22%; display: grid; place-items: center; }
+  .on-white { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+  .on-dark { background: #16161c; }
+  .on-purple { background: linear-gradient(135deg,#4f46e5,#9333ea); }
+  code { font-family: "Roboto Mono", ui-monospace, monospace; font-size: 11.5px;
+         background: rgba(79,70,229,.08); padding: 1px 5px; border-radius: 5px; }
+</style>
+</head>
+<body>
+
+<h1>JuiceMind 助手 · 图标</h1>
+<p class="lead">
+  概念：<b>正在被写下的答案</b>。两行文字（长短不一，像刚敲出来的两行）＋ 一支<b>斜切光标</b>，
+  光标是「笔尖落纸」的角度——既不是常见的「魔法棒/星星」，也不是「对话框」，而是一个动作的瞬间。
+  所有坐标取偶数并落在 32 网格上，缩到 16px 时正好对应整像素。
+</p>
+
+<h2>统一图形 · 品牌紫</h2>
+<div class="row">
+  <div class="item"><img src="png/icon-128.png" width="128" height="128"><div class="cap">128</div></div>
+  <div class="item"><img src="png/icon-48.png" width="48" height="48"><div class="cap">48</div></div>
+  <div class="item"><img src="png/icon-32.png" width="32" height="32"><div class="cap">32</div></div>
+  <div class="item"><img src="png/icon-16.png" width="16" height="16"><div class="cap">16</div></div>
+</div>
+
+<h2>应用图标 · 紫渐变圆角底</h2>
+<div class="row">
+  <div class="item"><img src="png/icon-app-128.png" width="128" height="128"><div class="cap">128</div></div>
+  <div class="item"><img src="png/icon-app-48.png" width="48" height="48"><div class="cap">48</div></div>
+  <div class="item"><img src="png/icon-app-32.png" width="32" height="32"><div class="cap">32</div></div>
+  <div class="item"><img src="png/icon-app-16.png" width="16" height="16"><div class="cap">16（像素对位版）</div></div>
+</div>
+
+<h2>小尺寸放大检查（最近邻 8×）</h2>
+<div class="grid-16">
+  <div class="item"><img class="px" src="png/icon-16.png" width="128" height="128" style="background:#fff;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12)"><div class="cap">图形 16px</div></div>
+  <div class="item"><img class="px" src="png/icon-app-16.png" width="128" height="128" style="border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12)"><div class="cap">应用 16px</div></div>
+  <div class="item"><img class="px" src="png/icon-32.png" width="128" height="128" style="background:#fff;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12)"><div class="cap">图形 32px</div></div>
+  <div class="item"><img class="px" src="png/icon-app-32.png" width="128" height="128" style="border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.12)"><div class="cap">应用 32px</div></div>
+</div>
+
+<h2>底色适配</h2>
+<div class="row">
+  <div class="swatch on-white"><img src="png/icon-64.png" width="64" height="64" onerror="this.src='png/icon-48.png'"></div>
+  <div class="swatch on-dark"><img src="png/icon-64.png" width="64" height="64" onerror="this.src='png/icon-48.png'" style="filter:brightness(0) invert(1)"></div>
+  <div class="swatch on-purple"><img src="png/icon-64.png" width="64" height="64" onerror="this.src='png/icon-48.png'" style="filter:brightness(0) invert(1)"></div>
+</div>
+
+<h2>在面板里的样子</h2>
+<div class="row">
+  <div class="panel">
+    <div class="hd">
+      <div class="logo"><img src="png/icon-48.png" width="19" height="19" style="filter:brightness(0) invert(1)"></div>
+      <div class="hd-txt"><div class="t">JuiceMind 助手</div><div class="s">deepseek-flash</div></div>
+    </div>
+    <div class="tabs"><div class="tab on">答题</div><div class="tab">总结</div><div class="tab">对话</div><div class="tab">设置</div></div>
+  </div>
+  <div class="fab"><img src="png/icon-48.png" width="26" height="26" style="filter:brightness(0) invert(1)"></div>
+</div>
+
+<h2>在面板里的样子（深色）</h2>
+<div class="row">
+  <div class="panel dark">
+    <div class="hd">
+      <div class="logo"><img src="png/icon-48.png" width="19" height="19" style="filter:brightness(0) invert(1)"></div>
+      <div class="hd-txt"><div class="t">JuiceMind 助手</div><div class="s">gpt-6.1-sol</div></div>
+    </div>
+    <div class="tabs"><div class="tab on">答题</div><div class="tab">总结</div><div class="tab">对话</div><div class="tab">设置</div></div>
+  </div>
+</div>
+
+</body>
+</html>
