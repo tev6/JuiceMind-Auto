@@ -702,6 +702,21 @@ const doc = window.document;
   ok('点不动的选项不会硬提交', af6.stat.submitted === 0, af6.stat);
   ok('点不动时报的是填入失败', af6.stat.failed.length === 2 && af6.stat.failed.every((f) => /没生效/.test(f.msg)), af6.stat.failed);
 
+  console.log('\n【27】已经提交过的页面：跳过，不碰按钮');
+  // 27.1 题目自己的提交栏出现「Review pending」
+  const af7 = await runAutoFlowCase({ result: 'Correct', submitted: true });
+  ok('已提交过的题不会被提交', af7.submits === 0 && af7.stat.submitted === 0, { submits: af7.submits, stat: af7.stat });
+  ok('已提交过的题被标为跳过', af7.stat.skipped === 2, af7.stat);
+  ok('已提交过的题不算问题', af7.stat.failed.length === 0, af7.stat.failed);
+  ok('卡片上写着「已提交过·跳过」', af7.cardStates.length === 2 && af7.cardStates.every((s) => /跳过|skipped/i.test(s)), af7.cardStates);
+
+  // 27.2 进度面板写着 Needs grading（用户截图里的那个状态）
+  const af8 = await runAutoFlowCase({ result: 'Correct', pageDone: true });
+  ok('整页已提交时不点任何按钮', af8.submits === 0 && af8.stat.submitted === 0, { submits: af8.submits, stat: af8.stat });
+  ok('整页已提交时全部跳过', af8.stat.skipped === 2, af8.stat);
+  ok('整页已提交时不白花 token', af8.reqs === 0, af8.reqs);
+  ok('整页已提交时不算问题', af8.stat.failed.length === 0, af8.stat.failed);
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {
@@ -820,6 +835,25 @@ async function runAutoFlowCase(opts) {
     sync();
   });
 
+  // ---- 模拟「已经提交过」：交过之后站点会把按钮换成状态词 ----
+  if (o.submitted) {
+    w.document.querySelectorAll('[data-multipleChoiceQuestion]').forEach((box) => {
+      const bar = box.querySelector('.flex.items-center.gap-2') || box;
+      const b = w.document.createElement('button');
+      b.type = 'button';
+      b.textContent = 'Review pending';
+      bar.appendChild(b);
+    });
+  }
+
+  // ---- 模拟进度面板上的状态徽章（Needs grading / Graded）----
+  if (o.pageDone) {
+    const panel = w.document.createElement('div');
+    panel.className = 'progress-panel';
+    panel.innerHTML = '<div>Your Progress</div><span class="badge">Needs grading</span>';
+    w.document.body.appendChild(panel);
+  }
+
   // ---- 模拟站点的受控组件：有时会漏掉第一次点击，有时怎么都点不动 ----
   if (o.swallowFirst || o.stuck) {
     const counts = new WeakMap();
@@ -840,7 +874,9 @@ async function runAutoFlowCase(opts) {
 
   // ---- 假模型：批量模式要返回 {"answers":[{"i":…}]} ----
   const letter = o.answer || 'A';
+  let reqs = 0;
   w.fetch = async (u, init) => {
+    reqs++;
     const body = JSON.parse((init && init.body) || '{}');
     const joined = (body.messages || []).map((m) => m.content).join('\n');
     let payload;
@@ -864,6 +900,7 @@ async function runAutoFlowCase(opts) {
   const cards = host && host.shadowRoot ? Array.from(host.shadowRoot.querySelectorAll('.q')) : [];
   return {
     stat,
+    reqs,
     submits: submits.length,
     leftOverModals: w.document.querySelectorAll('.MuiModal-root').length,
     cardStates: cards.map((c) => {

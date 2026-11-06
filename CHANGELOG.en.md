@@ -2,6 +2,22 @@
 
 The full version history. The README only keeps the most recent versions; new ones move here.
 
+## 1.13.0
+
+- **Already-submitted pages are now skipped instead of failing.**
+  Once a question is handed in, the site moves it to `Needs grading` or `Graded`, and
+  *Submit Answer* stays **disabled** for good (`disabled` comes from the page's `canSubmit`).
+  The script used to wait for the button to unlock and end with "the submit button stayed disabled",
+  which looks like a bug but simply means there was nothing left to submit.
+  It now recognises the state first:
+  - the question's own submit bar shows `Review pending` / `View grade` / `Unsubmit` → that question is in;
+  - the progress panel badge says `Needs grading` / `Graded` and the question's button is inert → same.
+  When it recognises it, it **fills nothing and never touches the button** — it just says
+  "this one was already submitted" and marks the card "already submitted — skipped".
+- If the whole page is already in, the model is not even called (no wasted tokens): the script says
+  "this page was already submitted — nothing to submit".
+- "Fill all" also skips questions that are already in, so their stored answers are left alone.
+
 ## 1.12.3
 
 - **Fixes the two errors that broke answering**: *Submit button is still disabled* and *The model did not return parseable JSON*.

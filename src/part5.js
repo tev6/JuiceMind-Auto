@@ -1153,7 +1153,7 @@ details.adv .adv-body { padding-top: 6px; }
       const expanded = this.isExpanded(q);
       const card = document.createElement('div');
       const bad = q.status === 'error' || q.submitStatus === 'error' || q.submitStatus === 'wrong';
-      card.className = 'q' + (q.status === 'done' || q.submitStatus === 'submitted' ? ' done' : bad ? ' error' : '') + (expanded ? ' expanded' : '');
+      card.className = 'q' + (q.status === 'done' || q.submitStatus === 'submitted' || q.submitStatus === 'skipped' ? ' done' : bad ? ' error' : '') + (expanded ? ' expanded' : '');
       card.dataset.qid = q.id;
 
       const hd = document.createElement('div');
@@ -1173,6 +1173,9 @@ details.adv .adv-body { padding-top: 6px; }
       if (q.submitStatus === 'submitted') {
         st.className = 'msg ok';
         st.textContent = L('已提交', 'submitted');
+      } else if (q.submitStatus === 'skipped') {
+        st.className = 'msg';
+        st.textContent = L('已提交过·跳过', 'already submitted — skipped');
       } else if (q.submitStatus === 'wrong') {
         st.className = 'msg err';
         st.textContent = L('已提交·答错', 'submitted, incorrect');

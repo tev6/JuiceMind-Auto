@@ -498,6 +498,8 @@
   /* ============================ 8. 落盘（填入页面） ============================ */
 
   const Appliers = {
+    _pageStatusCache: null, // {at, value}：整页状态徽章的短缓存
+
     /** 原生赋值 + React/Vue 兼容事件 */
     setNativeValue(el, value) {
       const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -887,6 +889,69 @@
       return await this.applyText(q, a);
     },
 
+    /* --------------------------- 提交状态 --------------------------- */
+
+    /**
+     * 这道题还能提交吗？
+     *
+     * 站点给条目四种状态（打包产物里的枚举）：
+     *   No submission / In progress / Needs grading / Graded
+     * 后两种说明**已经交过了**。这时提交栏的按钮会换成状态词，
+     * 而「Submit Answer」的 disabled 来自页面的 canSubmit —— 会一直禁用，
+     * 点它没有意义。这种时候要跳过并说清楚，而不是干等按钮解禁。
+     *
+     * @param {object} q 这道题
+     * @returns {'open'|'submitted'|'graded'}
+     */
+    submitState(q) {
+      const own = this.ownStatus(q);
+      if (own) return own;
+      // 整页徽章说这个条目交了，而这道题的按钮也确实点不动 —— 那就是交过了
+      const page = this.pageStatus();
+      if (page && this.isButtonDisabled(this.submitButton(q))) return page;
+      return 'open';
+    },
+
+    /** 题目自己的提交栏：交过之后，按钮会换成状态词 */
+    ownStatus(q) {
+      const roots = [q.container, q.container && q.container.parentElement].filter(Boolean);
+      for (const r of roots) {
+        for (const b of $$('button,[role="button"]', r)) {
+          const t = oneLine(textOf(b)).toLowerCase();
+          if (!t) continue;
+          if (t === 'review pending' || t === 'approval pending' || t === 'unsubmit' || t === 'run grading again') return 'submitted';
+          if (t === 'view grade') return 'graded';
+        }
+      }
+      return '';
+    },
+
+    /** 整页进度面板上的状态徽章（叶子节点，文字正好是状态名） */
+    pageStatus() {
+      const c = this._pageStatusCache;
+      if (c && Date.now() - c.at < 2000) return c.value;
+      let value = '';
+      const scope = PageModel.scope;
+      for (const el of $$('*')) {
+        if (el.children.length) continue;
+        const t = String(el.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (t !== 'needs grading' && t !== 'graded') continue;
+        if (scope && scope.contains(el)) continue; // 课件正文里的字不算
+        if (!isVisible(el)) continue;
+        value = t === 'graded' ? 'graded' : 'submitted';
+        break;
+      }
+      this._pageStatusCache = { at: Date.now(), value };
+      return value;
+    },
+
+    /** 已经交过的题，跳过时给用户看的话 */
+    skippedMsg(state) {
+      return state === 'graded'
+        ? L('这题已经批改过了，不用再提交', 'This one was already graded — nothing to submit')
+        : L('这题已经提交过了（站点显示待批改），不用再提交', 'This one was already submitted — nothing to submit');
+    },
+
     /* --------------------------- 提交 --------------------------- */
 
     findSubmitButtons(q) {
@@ -959,6 +1024,12 @@
     },
 
     async submit(q) {
+      // 已经交过的题：站点把提交按钮锁死了（disabled 来自页面的 canSubmit），
+      // 点它没有意义。这种时候直接跳过，不去碰按钮。
+      const st = this.submitState(q);
+      if (st !== 'open') {
+        return { ok: true, skipped: true, state: st, msg: this.skippedMsg(st) };
+      }
       const found = this.submitButton(q);
       if (!found) return { ok: false, msg: L('没找到提交按钮，请手动提交', 'No submit button found — submit it manually') };
 

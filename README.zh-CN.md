@@ -9,7 +9,7 @@
 给 [play.juicemind.com](https://play.juicemind.com) 用的 Tampermonkey 脚本：识别页面上的题目，调用大模型 API 生成答案，再全流程、全自动地填回页面并提交。
 
 [![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.12.3-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![Version](https://img.shields.io/badge/version-1.13.0-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![插件面板：扫描出题目并生成答案](docs/img/panel.png)
@@ -149,6 +149,7 @@
 
 完整历史见 [CHANGELOG.md](CHANGELOG.md)。
 
+- **1.13.0** — **已经提交过的页面改成跳过，不再报错**：题目一旦交上去，站点的「Submit Answer」就会永久禁用（状态变成 *Needs grading* / *Graded*）。现在脚本认得这个状态，会明确提示，并且不去碰那个按钮
 - **1.12.3** — **修好了两个把答题卡死的报错**：「提交按钮还是禁用状态」和「模型未返回可解析的 JSON」。提交前会一直等到页面真的收下这道答案（页面漏掉第一次点击就把选项再点一次）；输出预算也放宽到了带思考的模型够用的程度，被截断一半的答案会尽量补全而不是直接丢掉
 - **1.12.2** — 新插件图标：两行正在被写下的文字 + 一支斜切光标，替换原来的四角星；Tampermonkey 面板里的脚本图标同步更新
 - **1.12.1** — 补全 `@connect` 域名声明，Tampermonkey 不再对已知服务商弹跨域授权窗

@@ -136,6 +136,30 @@
 > 结论（脚本侧）：勾选项只做「真实点击 + 验证」，绝不赋值 `.checked`；
 > 提交前轮询等按钮解禁，没解禁就把选项再点一次。
 
+## 条目的四种状态（2026-11-06 从打包产物里读出来的）
+
+站点给每个条目（以及每道题）一个状态，枚举和文案都在打包产物里：
+
+| 状态 | 进度面板上的文案 | 意思 | 还能提交吗 |
+| --- | --- | --- | --- |
+| `notStarted` | `No submission` | 没交 | 能 |
+| `inProgress` | `In progress` | 存了答案，还没交 | 能 |
+| `waitingForReview` | `Needs grading` | **交了，等老师批** | **不能** |
+| `reviewed` | `Graded` | **已批改** | **不能** |
+
+关键点：
+
+- 「Submit Answer」的 `disabled` 来自页面的 **`canSubmit`**（来自条目的 activity state），
+  加上 `disabled={0 === selectedChoices.length}` —— 一旦交过，前者就一直为 false，
+  **按钮永久禁用，点它没有任何意义**。
+- 交过之后，题目的提交栏里按钮会被换成状态词：`Review pending` / `View grade` / `Approval pending`；
+  管理员视角还多一个 `Unsubmit`（"Reopens the answer for editing and removes its JuiceMind grade."）。
+- 右侧进度面板里有一个**状态徽章**，叶子节点，文字正好是 `Needs grading` / `Graded`
+  （页面上显示成大写是 CSS `text-transform`，DOM 里是首字母大写）。
+- 右边面板另有一个 `Review pending` 按钮 —— 别把它当成浮层（见上面「提交」一节的第 3 条）。
+
+> 脚本侧（v1.13.0 起）：认出这些状态就直接跳过，**不填、不点按钮**，如实告诉用户。
+
 ## 提交（实测 2026-11-05）
 
 点完 `Submit Answer` 之后，站点会弹一个 **MUI 浮层**（`class="MuiModal-root"`），它会挡住下一题的提交，必须关掉。实测三个状态：

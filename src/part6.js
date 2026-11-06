@@ -207,7 +207,8 @@
       UI.status(r.msg || '', r.ok ? undefined : 'err');
       if (r.ok && Store.get('autoSubmit')) {
         const s = await Appliers.submit(q);
-        if (s.ok) UI.toast(s.msg);
+        if (s.skipped) UI.toast(s.msg, 3200);
+        else if (s.ok) UI.toast(s.msg);
       }
       return r;
     },
@@ -220,17 +221,25 @@
       }
       let ok = 0;
       let skip = 0;
+      let done = 0;
       for (const q of scan.questions) {
         if (!q.answer) {
           skip++;
+          continue;
+        }
+        // 已经交过的题不去动它的答案
+        if (Appliers.submitState(q) !== 'open') {
+          done++;
           continue;
         }
         const r = await Appliers.apply(q);
         if (r.ok) ok++;
         await sleep(220);
       }
-      UI.status(L(`已填入 ${ok} 题`, `Filled ${ok}`) + (skip ? L(` · ${skip} 题没有答案`, ` · ${skip} without answers`) : ''));
-      UI.toast(L(`已填入 ${ok} 题`, `Filled ${ok}`) + (skip ? L(`，${skip} 题需要先生成`, `; ${skip} need generating first`) : ''));
+      const tail = skip ? L(` · ${skip} 题没有答案`, ` · ${skip} without answers`) : '';
+      const tailDone = done ? L(` · ${done} 题已经提交过（跳过）`, ` · ${done} already submitted (skipped)`) : '';
+      UI.status(L(`已填入 ${ok} 题`, `Filled ${ok}`) + tail + tailDone);
+      UI.toast(L(`已填入 ${ok} 题`, `Filled ${ok}`) + (skip ? L(`，${skip} 题需要先生成`, `; ${skip} need generating first`) : '') + (done ? L(`，${done} 题已经提交过`, `; ${done} already submitted`) : ''));
     },
 
     /**
@@ -245,7 +254,7 @@
 
       App.flow = true;
       const mark = App.stopMark; // 用户中途按「停止」时用它判断
-      const stat = { total: 0, filled: 0, submitted: 0, wrong: 0, failed: [], blocked: false };
+      const stat = { total: 0, filled: 0, submitted: 0, wrong: 0, skipped: 0, failed: [], blocked: false };
       try {
         // 1) 检测
         const scan = await this.scan(false);
@@ -254,6 +263,24 @@
         if (!qs.length) {
           UI.toast(L('这一页没有可自动作答的题目', 'No auto-answerable questions here'));
           return;
+        }
+
+        // 1.5) 已经交过的题：不填、不碰按钮，也别白花 token
+        const openQs = qs.filter((q) => Appliers.submitState(q) === 'open');
+        if (!openQs.length) {
+          const msg = Appliers.skippedMsg(Appliers.submitState(qs[0]));
+          stat.skipped = qs.length;
+          qs.forEach((q) => {
+            q.submitStatus = 'skipped';
+            UI.refreshCard(q);
+          });
+          UI.status(msg, 'err');
+          UI.toast(msg, 4200);
+          return stat;
+        }
+        const doneCount = qs.length - openQs.length;
+        if (doneCount) {
+          UI.toast(L(`其中 ${doneCount} 题已经提交过，会跳过`, `${doneCount} already submitted — will be skipped`), 2600);
         }
 
         // 2) 生成（批量优先，批量失败自动回退逐题）
@@ -271,6 +298,16 @@
           if (!App.busy || App.stopMark !== mark) break;
           const q = qs[i];
           UI.status(L(`第 ${i + 1}/${qs.length} 题：填入并提交…`, `Question ${i + 1}/${qs.length}: filling and submitting…`), 'busy');
+
+          // 已经交过的题：不填、不碰按钮，直接说清楚
+          const st = Appliers.submitState(q);
+          if (st !== 'open') {
+            q.submitStatus = 'skipped';
+            q.submitError = '';
+            stat.skipped++;
+            UI.refreshCard(q);
+            continue;
+          }
 
           if (!q.answer) {
             q.submitStatus = 'error';
@@ -291,7 +328,12 @@
           stat.filled++;
 
           const s = await Appliers.submit(q);
-          if (s.ok) {
+          if (s.skipped) {
+            // 中途才发现这题交过了：不碰按钮，如实标出来
+            q.submitStatus = 'skipped';
+            q.submitError = '';
+            stat.skipped++;
+          } else if (s.ok) {
             q.submitStatus = s.wrong ? 'wrong' : 'submitted';
             q.submitError = '';
             stat.submitted++;
@@ -321,14 +363,23 @@
       // 汇总：答案提交后改不了了，有问题必须说清楚
       const head = L(`完成：已提交 ${stat.submitted}/${stat.total}`, `Done: ${stat.submitted}/${stat.total} submitted`);
       const extra = stat.wrong ? L(`，${stat.wrong} 题被判为不正确`, `, ${stat.wrong} marked incorrect`) : '';
+      const skipNote = stat.skipped
+        ? L(`，跳过 ${stat.skipped} 题（已经提交过）`, `, ${stat.skipped} skipped (already submitted)`)
+        : '';
+      if (!stat.failed.length && stat.skipped && stat.skipped === stat.total) {
+        const msg = L('这一页已经提交过了，没有可提交的内容', 'This page was already submitted — nothing to submit');
+        UI.status(msg, 'err');
+        UI.toast(msg, 4200);
+        return stat;
+      }
       if (stat.failed.length) {
         const detail = stat.failed.map((f) => `#${f.n} ${f.stage}: ${f.msg}`).join(' | ');
-        UI.status(head + extra + L(`，${stat.failed.length} 题有问题`, `, ${stat.failed.length} problem(s)`), 'err');
-        UI.toast(head + extra + L(`，${stat.failed.length} 题有问题`, `, ${stat.failed.length} problem(s)`), 5200);
+        UI.status(head + extra + skipNote + L(`，${stat.failed.length} 题有问题`, `, ${stat.failed.length} problem(s)`), 'err');
+        UI.toast(head + extra + skipNote + L(`，${stat.failed.length} 题有问题`, `, ${stat.failed.length} problem(s)`), 5200);
         log('自动提交完成，有问题：', detail);
       } else {
-        UI.status(head + extra, stat.wrong ? 'err' : undefined);
-        UI.toast(head + extra, stat.wrong ? 4200 : 3000);
+        UI.status(head + extra + skipNote, stat.wrong ? 'err' : undefined);
+        UI.toast(head + extra + skipNote, stat.wrong ? 4200 : 3000);
       }
       return stat;
     },
