@@ -9,7 +9,7 @@
 A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it finds the questions on the page, calls a large language model API to generate answers, then fills them back in and submits everything automatically.
 
 [![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.12.2-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![Version](https://img.shields.io/badge/version-1.12.3-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![The panel: questions scanned and answers generated](docs/img/panel-en.png)
@@ -147,6 +147,7 @@ Pull requests and issues are welcome — to add support for other courses, repor
 
 The full history lives in [CHANGELOG.en.md](CHANGELOG.en.md).
 
+- **1.12.3** — **fixes the two errors that broke answering**: *Submit button is still disabled* and *The model did not return parseable JSON*. Before submitting, the script now waits until the page really accepts the answer (and clicks the option again if the page missed the first click); the output budget is now large enough for reasoning models, and an answer cut off mid-way is repaired instead of thrown away
 - **1.12.2** — new plugin icon: two lines of text being written plus a slanted cursor, replacing the old four-pointed star. The icon in the Tampermonkey listing now matches
 - **1.12.1** — completed the `@connect` domain declarations, so Tampermonkey stops asking for cross-origin permission on known providers
 - **1.12.0** — **new "Complete this page"** — detect → generate → fill in → submit, looping over every question

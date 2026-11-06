@@ -105,6 +105,37 @@
 
 字体：正文 Roboto / Assistant，代码 Roboto Mono。IDE 另有一套 `--ide-*` 变量挂在 `<html>` 上（Dracula 配色）。
 
+## 选择题：站点到底怎么记答案（2026-11-06 从打包产物里读出来的）
+
+站点的选择题是 **React 受控组件**，答案状态只有一个数组：
+
+```jsx
+// 站点源码（压缩后还原）
+<input aria-label={`Choice ${i+1}`}
+       checked={selectedChoices.includes(choice.id)}   // 受控：勾没勾由状态决定
+       name="choices"
+       onChange={e => setSelectedChoices([choice.id])}  // 单选：整个数组换掉
+       type={allowMultipleAnswers ? 'checkbox' : 'radio'} />
+```
+
+要点：
+
+1. **提交按钮的 disabled 就是「有没有选」**：`disabled={0 === selectedChoices.length}`（再叠一个 `canSubmit`）。
+   所以「按钮解禁」= 页面收下了答案 —— 这是脚本唯一可信的信号，比看 DOM 的 `checked` 靠谱。
+2. **React 给每个 input 挂了「值追踪器」**（`_valueTracker`，记的是 `checked`）。
+   - `input.checked = true` 这种赋值会**同时改掉追踪器**，于是 React 下次比较时认为「值没变」，
+     `onChange` 不触发 → 站点状态不变 → 按钮一直禁用。
+     **脚本以前那句「赋值 + 派发 input/change」的兜底，恰恰把状态锁死了。**
+   - 浏览器的激活行为（`input.click()`）改的是 checkedness，**不经过 JS 属性 setter**，追踪器不变 ——
+     所以 React 能看到变化。**这才是唯一可靠的点击方式。**
+   - 「点已经勾上的那个」DOM 不变 → React 也看不到变化 → 必须先取消勾选再点。
+3. **`name="choices"` 每道题都一样**，但每道题各自有 `<form>`，所以浏览器层面的单选组是按 form 分开的；
+   React 自己的恢复逻辑也只处理**同一个 form** 里的 radio。
+4. 题干和每个选项各是一个嵌套的 `.mcqtitle`；第一个 `.mcqtitle` 是题干（它在 `<form>` 外面）。
+
+> 结论（脚本侧）：勾选项只做「真实点击 + 验证」，绝不赋值 `.checked`；
+> 提交前轮询等按钮解禁，没解禁就把选项再点一次。
+
 ## 提交（实测 2026-11-05）
 
 点完 `Submit Answer` 之后，站点会弹一个 **MUI 浮层**（`class="MuiModal-root"`），它会挡住下一题的提交，必须关掉。实测三个状态：
@@ -125,6 +156,10 @@
 
 1. **站点会给每道题预勾第一个选项**（DOM 里 `checked` 为真），但 React 状态里还没有值——所以「Submit Answer」一开始是 `disabled`。
 2. **点「已经勾上的那个」不会触发 change**：DOM 不派发 change，React 的 `onChange` 也不触发，站点状态不更新，提交按钮就一直禁用。实测四种写法（`input.click()`、完整指针序列、点整行、赋值 + 派发事件）全都无效——**唯一有效的办法是先把勾选清掉再点**，让 React 看到一次真实的变化。脚本的 `Appliers.clickOption` 现在就是这么做的。
+
+   > 2026-11-06 补充：上面第 2 条的「赋值 + 派发事件」其实是**有害**的 —— 赋值会改掉 React 的值追踪器，
+   > 之后真正的点击会被吞掉。正确做法见上面「站点到底怎么记答案」一节。
+
 
 ## 其它
 

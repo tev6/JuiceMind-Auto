@@ -2,6 +2,17 @@
 
 The full version history. The README only keeps the most recent versions; new ones move here.
 
+## 1.12.3
+
+- **Fixes the two errors that broke answering**: *Submit button is still disabled* and *The model did not return parseable JSON*.
+  - Before submitting, the script no longer looks at the button once: it waits until the page really accepts the answer (in the site, an enabled button means `selectedChoices` is non-empty — the only signal the page gives). If the page missed the first click, the option is clicked again.
+  - Selecting an option no longer falls back to "assign `.checked` and dispatch events" — that also rewrites React's internal value tracker, so the next real click is discarded as "value unchanged" and the site state never changes. It now performs a real click and verifies the result.
+  - The submit button is looked up again every time, so a node React has already replaced is never reused.
+- **Output budget raised**: `max_tokens` for a multiple-choice question goes from 120 to 1024 (`max_tokens` is only a ceiling — a bigger one does not make the model write more). Reasoning models used to spend the whole budget thinking, leaving the answer empty, which is exactly what produced "did not return parseable JSON".
+- A failed parse now retries once with a bigger budget; JSON cut off mid-way is repaired; a top-level array is accepted.
+- Errors now say what actually happened: empty content, output truncated by `max_tokens`, or simply not JSON.
+- Fixed the model-parameter fallback chain: when dropping `response_format` failed a second time, the reasoning-model fallback was unreachable.
+
 ## 1.9.1
 
 - Human-like typing gained an "average typing speed" slider (15–120 WPM).

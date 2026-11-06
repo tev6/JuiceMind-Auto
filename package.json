@@ -1,6 +1,6 @@
 {
   "name": "juicemind-auto",
-  "version": "1.12.2",
+  "version": "1.12.3",
   "description": "JuiceMind AI 答题助手（Tampermonkey userscript）的开发与测试脚手架",
   "private": true,
   "type": "commonjs",

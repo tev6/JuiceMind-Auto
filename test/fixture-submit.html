@@ -30,7 +30,7 @@
             </div>
           </form>
           <div class="flex items-center gap-2">
-            <button type="submit">Submit Answer</button>
+            <button type="submit" disabled>Submit Answer</button>
           </div>
         </div>
 
@@ -49,10 +49,15 @@
             </div>
           </form>
           <div class="flex items-center gap-2">
-            <button type="submit">Submit Answer</button>
+            <button type="submit" disabled>Submit Answer</button>
           </div>
         </div>
       </div>
     </main>
+    <!--
+      照抄真实站点的规则：这道题没选答案，「Submit Answer」就是禁用的；
+      勾上之后才解禁。（接线在 test/run.js 里做，这个 jsdom 跑的是 outside-only，
+      页面里的内联脚本不会执行）
+    -->
   </body>
 </html>

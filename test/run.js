@@ -550,7 +550,7 @@ const doc = window.document;
   await J.Solvers.solveOne(mcqQ, scan22, 0);
   const mcqBody = cap[cap.length - 1];
   ok('选择题不再附整页正文', !/课程内容/.test(mcqBody.messages[1].content), mcqBody.messages[1].content.slice(0, 60));
-  ok('选择题 max_tokens 收紧到 120', mcqBody.max_tokens === 120, mcqBody.max_tokens);
+  ok('选择题输出预算留足思考空间（>=1024）', mcqBody.max_tokens >= 1024, mcqBody.max_tokens);
 
   // 长上下文会被截到预算附近
   const bigCtx = '开头无关内容。'.repeat(200) + '这是目标题干之前的说明。' + '这里是一道简答题的目标题干：解释循环。' + '结尾无关内容。'.repeat(200);
@@ -569,7 +569,9 @@ const doc = window.document;
 
   // maxTokensFor 按题型
   const caps = ['mcq', 'multiselect', 'blank', 'short', 'code'].map((t) => J.Solvers.maxTokensFor({ type: t }));
-  ok('各题型输出上限递减合理', caps[0] <= 120 && caps[1] <= 160 && caps[2] <= 320 && caps[3] <= 600 && caps[4] <= 1400, caps);
+  ok('各题型输出预算都够思考用（>=1024）', caps.every((c) => c >= 1024), caps);
+  ok('输出预算不超过用户设置的上限', caps.every((c) => c <= (Number(J.Store.get('maxTokens')) || 2048)), caps);
+  ok('放宽预算时仍不超过用户上限', J.Solvers.maxTokensFor({ type: 'mcq' }, 4) <= (Number(J.Store.get('maxTokens')) || 2048));
 
   // 关掉拟人写入，测一次短答题的整体用户消息体积
   if (shortQ) {
@@ -657,6 +659,49 @@ const doc = window.document;
   ok('弹层关不掉时流程停下并报告', af4.stat.submitted === 0 && af4.stat.failed.length === 1, af4.stat);
   ok('弹层关不掉时如实说明原因', /弹窗|popup/i.test((af4.stat.failed[0] && af4.stat.failed[0].msg) || ''), af4.stat.failed);
 
+  console.log('\n【26】回归：JSON 容错 / 模型参数降级 / 选不中也能说清');
+  // 26.1 输出格式容错
+  ok('顶层数组也能解析', Array.isArray(J.LLM.extractJson('[{"type":"mcq","answers":["B"]}]')));
+  ok('数组带前后废话也能解析', !!J.LLM.extractJson('好的，答案是：[{"type":"mcq","answers":["B"]}] 完毕'));
+  const cut = J.LLM.extractJson('{"type":"mcq","answers":["B"]');
+  ok('输出被截断的 JSON 也能救回来', !!(cut && cut.answers && cut.answers[0] === 'B'), cut);
+  ok('截断到一半的数组也能救回来', !!J.LLM.extractJson('[{"i":1,"answers":["A"]},{"i":2,"answers":["B"]}'));
+
+  // 26.2 解析失败时报错要能定位
+  ok('空内容报「空内容」', /空内容/.test(J.Solvers.parseFailMessage({ text: '', finishReason: 'length' })));
+  ok('被截断时报「截断」', /截断/.test(J.Solvers.parseFailMessage({ text: '{"type":"mcq"', finishReason: 'length' })));
+  ok('返回散文时报「未返回可解析的 JSON」', /JSON/.test(J.Solvers.parseFailMessage({ text: 'I cannot help with that.', finishReason: 'stop' })));
+
+  // 26.3 模型参数降级链
+  const seenBodies = [];
+  window.fetch = async (u, init) => {
+    const body = JSON.parse((init && init.body) || '{}');
+    seenBodies.push(body);
+    if (body.response_format) {
+      return new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'response_format' is not supported with this model." } }), { status: 400 });
+    }
+    if (body.max_tokens != null) {
+      return new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'max_tokens' is not supported. Use 'max_completion_tokens'." } }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"type":"mcq","answers":["A"]}' } }] }), { status: 200 });
+  };
+  const deg = await J.LLM.chat({ messages: [{ role: 'user', content: 'hi' }], stream: false, json: true, maxTokens: 512 });
+  ok('降级链一路往下走（3 次尝试）', seenBodies.length === 3, seenBodies.map((b) => Object.keys(b).join('+')));
+  ok('第 1 次带 response_format', !!seenBodies[0].response_format);
+  ok('第 2 次去掉 response_format', !seenBodies[1].response_format && seenBodies[1].max_tokens != null);
+  ok('第 3 次换成 max_completion_tokens', seenBodies[2].max_completion_tokens != null && seenBodies[2].max_tokens == null);
+  ok('降级后拿到正文', /mcq/.test(deg.text), deg.text);
+
+  // 26.4 站点吞掉第一次点击时，插件自己会再点一次
+  const af5 = await runAutoFlowCase({ result: 'Correct', swallowFirst: true });
+  ok('第一次点击被吞掉后仍能提交', af5.stat.submitted === 2, af5.stat);
+  ok('被吞掉时不留错误', af5.stat.failed.length === 0, af5.stat.failed);
+
+  // 26.5 选项怎么都点不动时，如实说是「填入」这一步失败
+  const af6 = await runAutoFlowCase({ result: 'Correct', stuck: true });
+  ok('点不动的选项不会硬提交', af6.stat.submitted === 0, af6.stat);
+  ok('点不动时报的是填入失败', af6.stat.failed.length === 2 && af6.stat.failed.every((f) => /没生效/.test(f.msg)), af6.stat.failed);
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {
@@ -700,6 +745,8 @@ async function runQuizCase() {
  * @param {object} opts
  *   result: 'Incorrect' | 'Correct' | 'Needs grading' —— 站点给出的结论
  *   noClose: true —— 模拟「关不掉」（没有 CloseIcon）
+ *   swallowFirst: true —— 站点吞掉第一次点击（受控组件漏掉 onChange）
+ *   stuck: true —— 选项怎么都点不动
  *   answer:  模型给的答案字母
  */
 async function runAutoFlowCase(opts) {
@@ -725,8 +772,7 @@ async function runAutoFlowCase(opts) {
 
   // ---- 模拟站点的提交弹层 ----
   const submits = [];
-  w.document.querySelectorAll('button').forEach((btn) => {
-    if (!/submit answer/i.test(btn.textContent || '')) return;
+  w.document.querySelectorAll('button').forEach((btn) => {    if (!/submit answer/i.test(btn.textContent || '')) return;
     btn.addEventListener('click', () => {
       submits.push(btn);
       const root = w.document.createElement('div');
@@ -760,6 +806,37 @@ async function runAutoFlowCase(opts) {
       }, 150);
     });
   });
+
+  // ---- 模拟站点的规则：没选答案，「Submit Answer」就是禁用的 ----
+  w.document.querySelectorAll('[data-multipleChoiceQuestion]').forEach((box) => {
+    const btn = box.querySelector('button');
+    const sync = () => {
+      btn.disabled = !box.querySelector('input:checked');
+    };
+    box.querySelectorAll('input').forEach((inp) => {
+      inp.addEventListener('click', sync);
+      inp.addEventListener('change', sync);
+    });
+    sync();
+  });
+
+  // ---- 模拟站点的受控组件：有时会漏掉第一次点击，有时怎么都点不动 ----
+  if (o.swallowFirst || o.stuck) {
+    const counts = new WeakMap();
+    w.document.querySelectorAll('input[type=radio]').forEach((inp) => {
+      inp.addEventListener('click', () => {
+        const n = (counts.get(inp) || 0) + 1;
+        counts.set(inp, n);
+        const swallow = o.stuck || n === 1;
+        if (!swallow) return;
+        // 站点拒收这次点击：DOM 勾上又被改回去，受控状态没变，按钮也就没解禁
+        inp.checked = false;
+        const box = inp.closest('[data-multipleChoiceQuestion]');
+        const btn = box && box.querySelector('button');
+        if (btn) btn.disabled = true;
+      });
+    });
+  }
 
   // ---- 假模型：批量模式要返回 {"answers":[{"i":…}]} ----
   const letter = o.answer || 'A';

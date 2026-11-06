@@ -302,19 +302,25 @@
       return lines.join('\n');
     },
 
-    /** 按题型限制输出长度：选择题根本不需要几百 token */
-    maxTokensFor(q) {
+    /**
+     * 按题型给输出预算。
+     * max_tokens 只是「上限」，给大一点不会让模型多写，只是不至于半句话就被切断。
+     * 以前选择题只给 120 —— 对带思考的模型（新一代 reasoning 模型）来说
+     * 思考就把额度用光了，正文是空的，于是「模型未返回可解析的 JSON」。
+     */
+    maxTokensFor(q, mult) {
       const cap = Number(Store.get('maxTokens')) || 2048;
       const byType = {
-        mcq: 120,
-        multiselect: 160,
-        blank: 320,
-        short: 600,
-        free: 700,
-        code: 1400,
-        parsons: 600,
+        mcq: 1024,
+        multiselect: 1024,
+        blank: 1024,
+        short: 2048,
+        free: 2048,
+        code: 4096,
+        parsons: 2048,
       };
-      return Math.min(cap, byType[q.type] || 800);
+      const base = Math.min(cap, byType[q.type] || 2048);
+      return mult ? Math.min(cap, Math.max(Math.round(base * mult), 1024)) : base;
     },
 
     cacheKey(q) {
@@ -323,6 +329,31 @@
       const s = location.pathname + '#' + ctx;
       for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
       return h + ':' + s.length;
+    },
+
+    /** 解析失败时给一句能定位问题的话 */
+    parseFailMessage(res) {
+      const text = (res && res.text) || '';
+      const finish = (res && res.finishReason) || '';
+      if (!text) {
+        if (finish === 'length') {
+          return L(
+            '模型返回了空内容：输出到一半就被 max_tokens 截断了（还没轮到正文），请把「最大输出」调大再试',
+            'The model returned empty content: the output was cut off by max_tokens before the answer — raise the output limit'
+          );
+        }
+        return L(
+          '模型返回了空内容（可能一直在思考，或 max_tokens 太小）',
+          'The model returned empty content (it may still be thinking, or max_tokens is too small)'
+        );
+      }
+      if (finish === 'length') {
+        return (
+          L('模型输出被 max_tokens 截断了：', 'The model output was cut off by max_tokens: ') +
+          truncate(oneLine(text), 160)
+        );
+      }
+      return L('模型未返回可解析的 JSON：', 'The model did not return parseable JSON: ') + truncate(oneLine(text), 160);
     },
 
     async solveOne(q, scan, idx) {
@@ -334,9 +365,15 @@
           content: [this.contextFor(scan, q), this.questionBlock(q, idx), '\n请给出这一题的答案 JSON。'].join('\n\n'),
         },
       ];
-      const res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q) });
-      const parsed = LLM.extractJson(res.text);
-      if (!parsed) throw new Error('模型未返回可解析的 JSON：' + truncate(oneLine(res.text), 160));
+      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q) });
+      let parsed = LLM.extractJson(res.text);
+      if (!parsed) {
+        // 解析不出来，最常见的原因是输出被 max_tokens 截断：放宽预算再来一次
+        log('单题没解析出 JSON，放宽输出预算重试一次');
+        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q, 4) });
+        parsed = LLM.extractJson(res.text);
+      }
+      if (!parsed) throw new Error(this.parseFailMessage(res));
       const answer = this.normalize(parsed, q);
       this.answers.set(this.cacheKey(q), { answer, at: Date.now() });
       return answer;
@@ -362,12 +399,17 @@
       this._batch = false;
 
       const cap = questions.reduce((sum, q) => sum + this.maxTokensFor(q), 0);
-      const res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(600, cap)) });
+      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(1200, cap)) });
 
-      const parsed = LLM.extractJson(res.text);
+      let parsed = LLM.extractJson(res.text);
+      if (!parsed) {
+        log('批量没解析出 JSON，放宽输出预算重试一次');
+        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(4096, cap * 2)) });
+        parsed = LLM.extractJson(res.text);
+      }
       let list = parsed;
       if (parsed && !Array.isArray(parsed)) list = parsed.answers || parsed.results || parsed.items || parsed.data;
-      if (!Array.isArray(list)) throw new Error('批量返回不是数组：' + truncate(oneLine(res.text), 160));
+      if (!Array.isArray(list)) throw new Error(this.parseFailMessage(res));
 
       const out = [];
       const missing = [];
@@ -649,44 +691,60 @@
 
     /* --------------------------- 选择题 --------------------------- */
 
-    clickOption(opt) {
+    /**
+     * 勾一个选项。
+     *
+     * 站点的选项是 React 受控组件（checked 来自 selectedChoices），而 React
+     * 给每个 input 挂了一个「值追踪器」：
+     *   · 直接赋值 .checked 会把追踪器一起改掉 → React 认为「值没变」，
+     *     onChange 不触发 → 站点状态不变 → 提交按钮一直是禁用的；
+     *   · 点「已经勾上的那个」DOM 也不会变 → 同样触发不了 onChange。
+     * 所以只能：先把勾选清掉（让 React 看到一次变化），再触发浏览器真正的激活行为。
+     * 绝对不要再用「赋值 + 派发事件」去补 —— 那只会把追踪器搅乱，之后的点击全被吞掉。
+     */
+    async clickOption(opt) {
       if (!opt) return false;
+      const input = opt.input;
       const target = opt.input || opt.clickEl || opt.el;
       if (!target) return false;
-      const input = opt.input;
-      // 站点会给每道题预勾选第一个选项。直接点「已经勾上」的那个，
-      // DOM 不会触发 change，React 也就不会更新状态 → 提交按钮一直是禁用的。
-      // 所以先把勾选清掉再点，让 React 看到一次真实的变化。
-      const wasChecked = !!(input && input.checked);
-      if (wasChecked) {
+
+      const clear = () => {
+        if (!input) return;
         try {
           input.checked = false;
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
         } catch (e) {
           /* ignore */
         }
+      };
+      const click = (el) => {
+        try {
+          el.click();
+        } catch (e) {
+          /* ignore */
+        }
+      };
+      const stuck = () => !input || input.checked;
+
+      // 单选且已经勾着：先取消再点回来（DOM 勾着但站点状态空着时，这是唯一能触发 change 的办法）
+      if (input && input.type !== 'checkbox' && input.checked) clear();
+      click(target);
+      await sleep(60);
+      if (stuck()) return true;
+
+      // 没生效：再来一次「取消 → 点击」
+      clear();
+      click(target);
+      await sleep(60);
+      if (stuck()) return true;
+
+      // 还不行：点整行 / label（有些实现把 onChange 挂在行上）
+      const row = (input && (input.closest('label') || input.parentElement)) || opt.el;
+      if (row && row !== target) {
+        clear();
+        click(row);
+        await sleep(60);
       }
-      try {
-        target.click();
-      } catch (e) {
-        /* ignore */
-      }
-      // 确保状态（React 受控组件可能忽略 click）
-      if (input) {
-        setTimeout(() => {
-          try {
-            if (!input.checked) {
-              input.checked = true;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-          } catch (e) {
-            /* ignore */
-          }
-        }, 30);
-      }
-      return true;
+      return stuck();
     },
 
     /** 把模型的字母/文本映射到具体选项 */
@@ -716,16 +774,30 @@
       return best;
     },
 
-    applyChoice(q, answer) {
-      const values = (answer.answers || []).filter((a) => oneLine(a));
+    /** 把答案对应到具体选项 */
+    pickOptions(q) {
+      const values = ((q.answer && q.answer.answers) || []).filter((a) => oneLine(a));
       const picked = [];
       for (const v of values) {
         const opt = this.matchOption(q, v);
         if (opt && !picked.includes(opt)) picked.push(opt);
       }
-      if (!picked.length) return { ok: false, msg: '没能把答案对应到选项：' + truncate(values.join(' / '), 60) };
       if (q.type !== 'multiselect' && picked.length > 1) picked.length = 1;
-      picked.forEach((o) => this.clickOption(o));
+      return picked;
+    },
+
+    async applyChoice(q, answer) {
+      const values = (answer.answers || []).filter((a) => oneLine(a));
+      const picked = this.pickOptions(q);
+      if (!picked.length) return { ok: false, msg: '没能把答案对应到选项：' + truncate(values.join(' / '), 60) };
+      let allOk = true;
+      for (const o of picked) {
+        const ok = await this.clickOption(o);
+        if (!ok) allOk = false;
+      }
+      if (!allOk) {
+        return { ok: false, msg: '选项点了没生效（题目可能已提交或只读），请手动勾选' };
+      }
       return { ok: true, msg: '已选择 ' + picked.map((o) => o.label).join('、') };
     },
 
@@ -838,14 +910,74 @@
       return out;
     },
 
-    async submit(q) {
+    /** 按钮算不算禁用（MUI 有时用 aria-disabled） */
+    isButtonDisabled(b) {
+      if (!b) return true;
+      return !!(b.disabled || b.hasAttribute('disabled') || b.getAttribute('aria-disabled') === 'true');
+    },
+
+    /**
+     * 这道题的提交按钮。
+     * 每次都重新找：React 重新渲染时可能把旧节点换掉，
+     * 拿着旧引用看 disabled，永远是旧状态。
+     */
+    submitButton(q) {
       const btns = this.findSubmitButtons(q);
-      if (!btns.length) return { ok: false, msg: L('没找到提交按钮，请手动提交', 'No submit button found — submit it manually') };
-      const btn = btns[0];
-      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
-        await sleep(400);
-        if (btn.disabled) return { ok: false, msg: L('提交按钮还是禁用状态（内容可能没被页面接受），请手动确认', 'Submit button is still disabled (the page may not have accepted the answer) — confirm it manually') };
+      if (!btns.length) return null;
+      const enabled = btns.find((b) => !this.isButtonDisabled(b));
+      return enabled || btns[0];
+    },
+
+    /**
+     * 等站点的提交按钮解禁。
+     * 站点的规则是「没选答案 → 按钮 disabled」，所以按钮解禁与否
+     * 就是「页面到底收没收下这道答案」唯一可信的信号。
+     */
+    async waitEnabled(q, timeout) {
+      const t0 = Date.now();
+      let btn = null;
+      while (Date.now() - t0 < (timeout || 2000)) {
+        btn = this.submitButton(q);
+        if (btn && !this.isButtonDisabled(btn)) return { ok: true, btn };
+        await sleep(120);
       }
+      return { ok: false, btn };
+    },
+
+    /** 再操作一次：受控组件偶尔会漏掉第一次点击 */
+    async retryApply(q) {
+      if (!q.answer) return false;
+      if (q.type === 'code') return false; // 代码题是拟人逐字敲的，重写反而更糟
+      if (q.type === 'mcq' || q.type === 'multiselect') {
+        const picked = this.pickOptions(q);
+        if (!picked.length) return false;
+        for (const o of picked) await this.clickOption(o);
+        return true;
+      }
+      const r = await this.apply(q);
+      return !!r.ok;
+    },
+
+    async submit(q) {
+      const found = this.submitButton(q);
+      if (!found) return { ok: false, msg: L('没找到提交按钮，请手动提交', 'No submit button found — submit it manually') };
+
+      // 按钮解禁 = 站点收下了这道答案。不能只看一次，要给它一点反应时间。
+      let ready = await this.waitEnabled(q, 1200);
+      if (!ready.ok) {
+        const again = await this.retryApply(q);
+        if (again) ready = await this.waitEnabled(q, 2500);
+      }
+      if (!ready.ok) {
+        return {
+          ok: false,
+          msg: L(
+            '提交按钮一直是禁用的（站点没接受这道答案），请手动勾选并提交',
+            'The submit button stayed disabled (the page did not accept the answer) — tick it and submit manually'
+          ),
+        };
+      }
+      const btn = this.submitButton(q) || ready.btn;
       // 提交前先拍快照：浮层、报错提示、接口响应都要和「提交后」做对比
       const pre = {
         overlays: SubmitFlow.snapshot(),

@@ -5,7 +5,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.12.2
+// @version      1.12.3
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       tev6
 // @match        https://play.juicemind.com/*
@@ -55,7 +55,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.12.2';
+  const VERSION = '1.12.3';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -1499,26 +1499,37 @@
           }
         : undefined;
 
-      try {
-        return await this._withRetry(() => this._send(url, body, { stream: !!opts.stream, onDelta, timeout, json: wantJson }), () => emitted);
-      } catch (err) {
-        // 降级 1：部分服务不支持 response_format
-        if (body.response_format) {
-          log('JSON 模式失败，降级重试', err.message);
-          delete body.response_format;
-          return await this._withRetry(() => this._send(url, body, { stream: !!opts.stream, onDelta, timeout, json: false }), () => emitted);
-        }
-        // 降级 2：推理模型不接受 temperature / max_tokens
-        if (/temperature|max_tokens|unsupported|invalid/i.test(err.message || '')) {
-          log('参数不兼容，改用推理模型参数', err.message);
-          const b2 = Object.assign({}, body);
-          delete b2.temperature;
-          delete b2.max_tokens;
-          b2.max_completion_tokens = Number(cfg.maxTokens);
-          return await this._withRetry(() => this._send(url, b2, { stream: !!opts.stream, onDelta, timeout, json: false }), () => emitted);
-        }
-        throw err;
+      // 降级链要能一路往下走：以前「去掉 response_format」那步自己再抛一次，
+      // 后面「推理模型不接受 temperature / max_tokens」那档就永远轮不到，
+      // 于是又大又新的模型直接 400。
+      const variants = [{ body: body, json: wantJson, tag: '原样' }];
+      if (wantJson) {
+        const b1 = Object.assign({}, body);
+        delete b1.response_format;
+        variants.push({ body: b1, json: false, tag: '去掉 response_format' });
       }
+      const b2 = Object.assign({}, body);
+      delete b2.response_format;
+      delete b2.temperature;
+      delete b2.max_tokens;
+      b2.max_completion_tokens = Math.max(512, Number(cfg.maxTokens) || 4096);
+      variants.push({ body: b2, json: false, tag: '推理模型参数' });
+
+      let lastErr = null;
+      for (let i = 0; i < variants.length; i++) {
+        const v = variants[i];
+        try {
+          return await this._withRetry(() => this._send(url, v.body, { stream: !!opts.stream, onDelta, timeout, json: v.json }), () => emitted);
+        } catch (err) {
+          lastErr = err;
+          if (err && err.name === 'AbortError') throw err;
+          // 只有「参数不被接受」才值得换一种写法再试；401/429 之类直接上抛
+          const paramIssue = /response_format|temperature|max_tokens|max_completion_tokens|unsupported|invalid|not supported|unrecognized/i.test(err.message || '');
+          if (i >= variants.length - 1 || !paramIssue) break;
+          log('参数不被接受，改用「' + v.tag + '」再试一次', err.message);
+        }
+      }
+      throw lastErr;
     },
 
     /** 最多重试 2 次，指数退避 + 抖动；已开始输出则不再重试 */
@@ -1591,7 +1602,7 @@
                   }
                 }
                 if (parser.usage) this.addUsage(parser.usage);
-                resolve({ text, raw: res.responseText, usage: parser.usage || null });
+                resolve({ text, raw: res.responseText, usage: parser.usage || null, finishReason: parser.finishReason || '' });
               } else {
                 resolve(this._parseCompletion(res.responseText));
               }
@@ -1663,7 +1674,7 @@
           }
         }
         if (parser.usage) this.addUsage(parser.usage);
-        return { text, raw: rawAll, usage: parser.usage || null };
+        return { text, raw: rawAll, usage: parser.usage || null, finishReason: parser.finishReason || '' };
       } finally {
         clearTimeout(timer);
         this._active = null;
@@ -1679,9 +1690,19 @@
       }
       if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
       const choice = (j.choices || [])[0] || {};
-      const content = (choice.message && choice.message.content) || choice.text || '';
+      const msg = choice.message || {};
+      const content = msg.content || choice.text || '';
       this.addUsage(j.usage);
-      return { text: String(content), raw: text, usage: j.usage || null, model: j.model };
+      return {
+        text: String(content),
+        raw: text,
+        usage: j.usage || null,
+        model: j.model,
+        // 推理模型会把思考放进 reasoning_content，正文留空；
+        // finish_reason = length 说明输出被 max_tokens 截断了
+        finishReason: choice.finish_reason || '',
+        reasoning: String(msg.reasoning_content || choice.reasoning || ''),
+      };
     },
 
     _httpError(status, bodyText) {
@@ -1730,7 +1751,9 @@
           try {
             const j = JSON.parse(data);
             if (j.usage) parser.usage = j.usage;
-            const d = j.choices && j.choices[0] && (j.choices[0].delta || j.choices[0].message);
+            const ch = j.choices && j.choices[0];
+            if (ch && ch.finish_reason) parser.finishReason = ch.finish_reason;
+            const d = ch && (ch.delta || ch.message);
             const piece = d && (d.content || '');
             if (piece) {
               parser.text += piece;
@@ -1742,6 +1765,7 @@
         }
       };
       parser.text = '';
+      parser.finishReason = '';
       parser.reset = () => {
         buf = '';
         parser.text = '';
@@ -1749,7 +1773,31 @@
       return parser;
     },
 
-    /** 从模型输出里抠出 JSON 对象（容忍 ```json 围栏与前后废话） */
+    /** 把被 max_tokens 截断的 JSON 补完整（模型话说到一半就没了） */
+    repairJson(s) {
+      const stack = [];
+      let inStr = false;
+      let esc = false;
+      for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (c === '\\') esc = true;
+          else if (c === '"') inStr = false;
+          continue;
+        }
+        if (c === '"') inStr = true;
+        else if (c === '{' || c === '[') stack.push(c);
+        else if (c === '}' || c === ']') stack.pop();
+      }
+      if (!stack.length && !inStr) return s;
+      let out = s;
+      if (inStr) out += '"';
+      for (let i = stack.length - 1; i >= 0; i--) out += stack[i] === '{' ? '}' : ']';
+      return out;
+    },
+
+    /** 从模型输出里抠出 JSON（容忍 ```json 围栏、前后废话、顶层数组、被截断的尾巴） */
     extractJson(text) {
       if (!text) return null;
       let s = String(text).trim();
@@ -1767,12 +1815,16 @@
       let v = tryParse(s);
       if (v !== undefined) return v;
 
-      // 花括号配对扫描
-      const start = s.indexOf('{');
-      if (start >= 0) {
+      // 括号配对扫描：既认对象也认数组（模型有时直接给 [{...},{...}]）
+      for (const pair of [['{', '}'], ['[', ']']]) {
+        const open = pair[0];
+        const close = pair[1];
+        const start = s.indexOf(open);
+        if (start < 0) continue;
         let depth = 0;
         let inStr = false;
         let esc = false;
+        let end = -1;
         for (let i = start; i < s.length; i++) {
           const c = s[i];
           if (inStr) {
@@ -1782,20 +1834,24 @@
             continue;
           }
           if (c === '"') inStr = true;
-          else if (c === '{') depth++;
-          else if (c === '}') {
+          else if (c === open) depth++;
+          else if (c === close) {
             depth--;
             if (depth === 0) {
-              const sub = s.slice(start, i + 1);
-              v = tryParse(sub);
-              if (v !== undefined) return v;
-              // 修复尾逗号再试
-              v = tryParse(sub.replace(/,\s*([}\]])/g, '$1'));
-              if (v !== undefined) return v;
+              end = i;
               break;
             }
           }
         }
+        const sub = end >= 0 ? s.slice(start, end + 1) : s.slice(start);
+        v = tryParse(sub);
+        if (v !== undefined) return v;
+        // 修复尾逗号再试
+        v = tryParse(sub.replace(/,\s*([}\]])/g, '$1'));
+        if (v !== undefined) return v;
+        // 输出被截断：把缺的部分补上再试
+        v = tryParse(this.repairJson(sub));
+        if (v !== undefined) return v;
       }
       return null;
     },
@@ -2105,19 +2161,25 @@
       return lines.join('\n');
     },
 
-    /** 按题型限制输出长度：选择题根本不需要几百 token */
-    maxTokensFor(q) {
+    /**
+     * 按题型给输出预算。
+     * max_tokens 只是「上限」，给大一点不会让模型多写，只是不至于半句话就被切断。
+     * 以前选择题只给 120 —— 对带思考的模型（新一代 reasoning 模型）来说
+     * 思考就把额度用光了，正文是空的，于是「模型未返回可解析的 JSON」。
+     */
+    maxTokensFor(q, mult) {
       const cap = Number(Store.get('maxTokens')) || 2048;
       const byType = {
-        mcq: 120,
-        multiselect: 160,
-        blank: 320,
-        short: 600,
-        free: 700,
-        code: 1400,
-        parsons: 600,
+        mcq: 1024,
+        multiselect: 1024,
+        blank: 1024,
+        short: 2048,
+        free: 2048,
+        code: 4096,
+        parsons: 2048,
       };
-      return Math.min(cap, byType[q.type] || 800);
+      const base = Math.min(cap, byType[q.type] || 2048);
+      return mult ? Math.min(cap, Math.max(Math.round(base * mult), 1024)) : base;
     },
 
     cacheKey(q) {
@@ -2126,6 +2188,31 @@
       const s = location.pathname + '#' + ctx;
       for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
       return h + ':' + s.length;
+    },
+
+    /** 解析失败时给一句能定位问题的话 */
+    parseFailMessage(res) {
+      const text = (res && res.text) || '';
+      const finish = (res && res.finishReason) || '';
+      if (!text) {
+        if (finish === 'length') {
+          return L(
+            '模型返回了空内容：输出到一半就被 max_tokens 截断了（还没轮到正文），请把「最大输出」调大再试',
+            'The model returned empty content: the output was cut off by max_tokens before the answer — raise the output limit'
+          );
+        }
+        return L(
+          '模型返回了空内容（可能一直在思考，或 max_tokens 太小）',
+          'The model returned empty content (it may still be thinking, or max_tokens is too small)'
+        );
+      }
+      if (finish === 'length') {
+        return (
+          L('模型输出被 max_tokens 截断了：', 'The model output was cut off by max_tokens: ') +
+          truncate(oneLine(text), 160)
+        );
+      }
+      return L('模型未返回可解析的 JSON：', 'The model did not return parseable JSON: ') + truncate(oneLine(text), 160);
     },
 
     async solveOne(q, scan, idx) {
@@ -2137,9 +2224,15 @@
           content: [this.contextFor(scan, q), this.questionBlock(q, idx), '\n请给出这一题的答案 JSON。'].join('\n\n'),
         },
       ];
-      const res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q) });
-      const parsed = LLM.extractJson(res.text);
-      if (!parsed) throw new Error('模型未返回可解析的 JSON：' + truncate(oneLine(res.text), 160));
+      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q) });
+      let parsed = LLM.extractJson(res.text);
+      if (!parsed) {
+        // 解析不出来，最常见的原因是输出被 max_tokens 截断：放宽预算再来一次
+        log('单题没解析出 JSON，放宽输出预算重试一次');
+        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q, 4) });
+        parsed = LLM.extractJson(res.text);
+      }
+      if (!parsed) throw new Error(this.parseFailMessage(res));
       const answer = this.normalize(parsed, q);
       this.answers.set(this.cacheKey(q), { answer, at: Date.now() });
       return answer;
@@ -2165,12 +2258,17 @@
       this._batch = false;
 
       const cap = questions.reduce((sum, q) => sum + this.maxTokensFor(q), 0);
-      const res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(600, cap)) });
+      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(1200, cap)) });
 
-      const parsed = LLM.extractJson(res.text);
+      let parsed = LLM.extractJson(res.text);
+      if (!parsed) {
+        log('批量没解析出 JSON，放宽输出预算重试一次');
+        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(4096, cap * 2)) });
+        parsed = LLM.extractJson(res.text);
+      }
       let list = parsed;
       if (parsed && !Array.isArray(parsed)) list = parsed.answers || parsed.results || parsed.items || parsed.data;
-      if (!Array.isArray(list)) throw new Error('批量返回不是数组：' + truncate(oneLine(res.text), 160));
+      if (!Array.isArray(list)) throw new Error(this.parseFailMessage(res));
 
       const out = [];
       const missing = [];
@@ -2452,44 +2550,60 @@
 
     /* --------------------------- 选择题 --------------------------- */
 
-    clickOption(opt) {
+    /**
+     * 勾一个选项。
+     *
+     * 站点的选项是 React 受控组件（checked 来自 selectedChoices），而 React
+     * 给每个 input 挂了一个「值追踪器」：
+     *   · 直接赋值 .checked 会把追踪器一起改掉 → React 认为「值没变」，
+     *     onChange 不触发 → 站点状态不变 → 提交按钮一直是禁用的；
+     *   · 点「已经勾上的那个」DOM 也不会变 → 同样触发不了 onChange。
+     * 所以只能：先把勾选清掉（让 React 看到一次变化），再触发浏览器真正的激活行为。
+     * 绝对不要再用「赋值 + 派发事件」去补 —— 那只会把追踪器搅乱，之后的点击全被吞掉。
+     */
+    async clickOption(opt) {
       if (!opt) return false;
+      const input = opt.input;
       const target = opt.input || opt.clickEl || opt.el;
       if (!target) return false;
-      const input = opt.input;
-      // 站点会给每道题预勾选第一个选项。直接点「已经勾上」的那个，
-      // DOM 不会触发 change，React 也就不会更新状态 → 提交按钮一直是禁用的。
-      // 所以先把勾选清掉再点，让 React 看到一次真实的变化。
-      const wasChecked = !!(input && input.checked);
-      if (wasChecked) {
+
+      const clear = () => {
+        if (!input) return;
         try {
           input.checked = false;
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
         } catch (e) {
           /* ignore */
         }
+      };
+      const click = (el) => {
+        try {
+          el.click();
+        } catch (e) {
+          /* ignore */
+        }
+      };
+      const stuck = () => !input || input.checked;
+
+      // 单选且已经勾着：先取消再点回来（DOM 勾着但站点状态空着时，这是唯一能触发 change 的办法）
+      if (input && input.type !== 'checkbox' && input.checked) clear();
+      click(target);
+      await sleep(60);
+      if (stuck()) return true;
+
+      // 没生效：再来一次「取消 → 点击」
+      clear();
+      click(target);
+      await sleep(60);
+      if (stuck()) return true;
+
+      // 还不行：点整行 / label（有些实现把 onChange 挂在行上）
+      const row = (input && (input.closest('label') || input.parentElement)) || opt.el;
+      if (row && row !== target) {
+        clear();
+        click(row);
+        await sleep(60);
       }
-      try {
-        target.click();
-      } catch (e) {
-        /* ignore */
-      }
-      // 确保状态（React 受控组件可能忽略 click）
-      if (input) {
-        setTimeout(() => {
-          try {
-            if (!input.checked) {
-              input.checked = true;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-          } catch (e) {
-            /* ignore */
-          }
-        }, 30);
-      }
-      return true;
+      return stuck();
     },
 
     /** 把模型的字母/文本映射到具体选项 */
@@ -2519,16 +2633,30 @@
       return best;
     },
 
-    applyChoice(q, answer) {
-      const values = (answer.answers || []).filter((a) => oneLine(a));
+    /** 把答案对应到具体选项 */
+    pickOptions(q) {
+      const values = ((q.answer && q.answer.answers) || []).filter((a) => oneLine(a));
       const picked = [];
       for (const v of values) {
         const opt = this.matchOption(q, v);
         if (opt && !picked.includes(opt)) picked.push(opt);
       }
-      if (!picked.length) return { ok: false, msg: '没能把答案对应到选项：' + truncate(values.join(' / '), 60) };
       if (q.type !== 'multiselect' && picked.length > 1) picked.length = 1;
-      picked.forEach((o) => this.clickOption(o));
+      return picked;
+    },
+
+    async applyChoice(q, answer) {
+      const values = (answer.answers || []).filter((a) => oneLine(a));
+      const picked = this.pickOptions(q);
+      if (!picked.length) return { ok: false, msg: '没能把答案对应到选项：' + truncate(values.join(' / '), 60) };
+      let allOk = true;
+      for (const o of picked) {
+        const ok = await this.clickOption(o);
+        if (!ok) allOk = false;
+      }
+      if (!allOk) {
+        return { ok: false, msg: '选项点了没生效（题目可能已提交或只读），请手动勾选' };
+      }
       return { ok: true, msg: '已选择 ' + picked.map((o) => o.label).join('、') };
     },
 
@@ -2641,14 +2769,74 @@
       return out;
     },
 
-    async submit(q) {
+    /** 按钮算不算禁用（MUI 有时用 aria-disabled） */
+    isButtonDisabled(b) {
+      if (!b) return true;
+      return !!(b.disabled || b.hasAttribute('disabled') || b.getAttribute('aria-disabled') === 'true');
+    },
+
+    /**
+     * 这道题的提交按钮。
+     * 每次都重新找：React 重新渲染时可能把旧节点换掉，
+     * 拿着旧引用看 disabled，永远是旧状态。
+     */
+    submitButton(q) {
       const btns = this.findSubmitButtons(q);
-      if (!btns.length) return { ok: false, msg: L('没找到提交按钮，请手动提交', 'No submit button found — submit it manually') };
-      const btn = btns[0];
-      if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
-        await sleep(400);
-        if (btn.disabled) return { ok: false, msg: L('提交按钮还是禁用状态（内容可能没被页面接受），请手动确认', 'Submit button is still disabled (the page may not have accepted the answer) — confirm it manually') };
+      if (!btns.length) return null;
+      const enabled = btns.find((b) => !this.isButtonDisabled(b));
+      return enabled || btns[0];
+    },
+
+    /**
+     * 等站点的提交按钮解禁。
+     * 站点的规则是「没选答案 → 按钮 disabled」，所以按钮解禁与否
+     * 就是「页面到底收没收下这道答案」唯一可信的信号。
+     */
+    async waitEnabled(q, timeout) {
+      const t0 = Date.now();
+      let btn = null;
+      while (Date.now() - t0 < (timeout || 2000)) {
+        btn = this.submitButton(q);
+        if (btn && !this.isButtonDisabled(btn)) return { ok: true, btn };
+        await sleep(120);
       }
+      return { ok: false, btn };
+    },
+
+    /** 再操作一次：受控组件偶尔会漏掉第一次点击 */
+    async retryApply(q) {
+      if (!q.answer) return false;
+      if (q.type === 'code') return false; // 代码题是拟人逐字敲的，重写反而更糟
+      if (q.type === 'mcq' || q.type === 'multiselect') {
+        const picked = this.pickOptions(q);
+        if (!picked.length) return false;
+        for (const o of picked) await this.clickOption(o);
+        return true;
+      }
+      const r = await this.apply(q);
+      return !!r.ok;
+    },
+
+    async submit(q) {
+      const found = this.submitButton(q);
+      if (!found) return { ok: false, msg: L('没找到提交按钮，请手动提交', 'No submit button found — submit it manually') };
+
+      // 按钮解禁 = 站点收下了这道答案。不能只看一次，要给它一点反应时间。
+      let ready = await this.waitEnabled(q, 1200);
+      if (!ready.ok) {
+        const again = await this.retryApply(q);
+        if (again) ready = await this.waitEnabled(q, 2500);
+      }
+      if (!ready.ok) {
+        return {
+          ok: false,
+          msg: L(
+            '提交按钮一直是禁用的（站点没接受这道答案），请手动勾选并提交',
+            'The submit button stayed disabled (the page did not accept the answer) — tick it and submit manually'
+          ),
+        };
+      }
+      const btn = this.submitButton(q) || ready.btn;
       // 提交前先拍快照：浮层、报错提示、接口响应都要和「提交后」做对比
       const pre = {
         overlays: SubmitFlow.snapshot(),

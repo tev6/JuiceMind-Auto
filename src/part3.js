@@ -189,26 +189,37 @@
           }
         : undefined;
 
-      try {
-        return await this._withRetry(() => this._send(url, body, { stream: !!opts.stream, onDelta, timeout, json: wantJson }), () => emitted);
-      } catch (err) {
-        // 降级 1：部分服务不支持 response_format
-        if (body.response_format) {
-          log('JSON 模式失败，降级重试', err.message);
-          delete body.response_format;
-          return await this._withRetry(() => this._send(url, body, { stream: !!opts.stream, onDelta, timeout, json: false }), () => emitted);
-        }
-        // 降级 2：推理模型不接受 temperature / max_tokens
-        if (/temperature|max_tokens|unsupported|invalid/i.test(err.message || '')) {
-          log('参数不兼容，改用推理模型参数', err.message);
-          const b2 = Object.assign({}, body);
-          delete b2.temperature;
-          delete b2.max_tokens;
-          b2.max_completion_tokens = Number(cfg.maxTokens);
-          return await this._withRetry(() => this._send(url, b2, { stream: !!opts.stream, onDelta, timeout, json: false }), () => emitted);
-        }
-        throw err;
+      // 降级链要能一路往下走：以前「去掉 response_format」那步自己再抛一次，
+      // 后面「推理模型不接受 temperature / max_tokens」那档就永远轮不到，
+      // 于是又大又新的模型直接 400。
+      const variants = [{ body: body, json: wantJson, tag: '原样' }];
+      if (wantJson) {
+        const b1 = Object.assign({}, body);
+        delete b1.response_format;
+        variants.push({ body: b1, json: false, tag: '去掉 response_format' });
       }
+      const b2 = Object.assign({}, body);
+      delete b2.response_format;
+      delete b2.temperature;
+      delete b2.max_tokens;
+      b2.max_completion_tokens = Math.max(512, Number(cfg.maxTokens) || 4096);
+      variants.push({ body: b2, json: false, tag: '推理模型参数' });
+
+      let lastErr = null;
+      for (let i = 0; i < variants.length; i++) {
+        const v = variants[i];
+        try {
+          return await this._withRetry(() => this._send(url, v.body, { stream: !!opts.stream, onDelta, timeout, json: v.json }), () => emitted);
+        } catch (err) {
+          lastErr = err;
+          if (err && err.name === 'AbortError') throw err;
+          // 只有「参数不被接受」才值得换一种写法再试；401/429 之类直接上抛
+          const paramIssue = /response_format|temperature|max_tokens|max_completion_tokens|unsupported|invalid|not supported|unrecognized/i.test(err.message || '');
+          if (i >= variants.length - 1 || !paramIssue) break;
+          log('参数不被接受，改用「' + v.tag + '」再试一次', err.message);
+        }
+      }
+      throw lastErr;
     },
 
     /** 最多重试 2 次，指数退避 + 抖动；已开始输出则不再重试 */
@@ -281,7 +292,7 @@
                   }
                 }
                 if (parser.usage) this.addUsage(parser.usage);
-                resolve({ text, raw: res.responseText, usage: parser.usage || null });
+                resolve({ text, raw: res.responseText, usage: parser.usage || null, finishReason: parser.finishReason || '' });
               } else {
                 resolve(this._parseCompletion(res.responseText));
               }
@@ -353,7 +364,7 @@
           }
         }
         if (parser.usage) this.addUsage(parser.usage);
-        return { text, raw: rawAll, usage: parser.usage || null };
+        return { text, raw: rawAll, usage: parser.usage || null, finishReason: parser.finishReason || '' };
       } finally {
         clearTimeout(timer);
         this._active = null;
@@ -369,9 +380,19 @@
       }
       if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
       const choice = (j.choices || [])[0] || {};
-      const content = (choice.message && choice.message.content) || choice.text || '';
+      const msg = choice.message || {};
+      const content = msg.content || choice.text || '';
       this.addUsage(j.usage);
-      return { text: String(content), raw: text, usage: j.usage || null, model: j.model };
+      return {
+        text: String(content),
+        raw: text,
+        usage: j.usage || null,
+        model: j.model,
+        // 推理模型会把思考放进 reasoning_content，正文留空；
+        // finish_reason = length 说明输出被 max_tokens 截断了
+        finishReason: choice.finish_reason || '',
+        reasoning: String(msg.reasoning_content || choice.reasoning || ''),
+      };
     },
 
     _httpError(status, bodyText) {
@@ -420,7 +441,9 @@
           try {
             const j = JSON.parse(data);
             if (j.usage) parser.usage = j.usage;
-            const d = j.choices && j.choices[0] && (j.choices[0].delta || j.choices[0].message);
+            const ch = j.choices && j.choices[0];
+            if (ch && ch.finish_reason) parser.finishReason = ch.finish_reason;
+            const d = ch && (ch.delta || ch.message);
             const piece = d && (d.content || '');
             if (piece) {
               parser.text += piece;
@@ -432,6 +455,7 @@
         }
       };
       parser.text = '';
+      parser.finishReason = '';
       parser.reset = () => {
         buf = '';
         parser.text = '';
@@ -439,7 +463,31 @@
       return parser;
     },
 
-    /** 从模型输出里抠出 JSON 对象（容忍 ```json 围栏与前后废话） */
+    /** 把被 max_tokens 截断的 JSON 补完整（模型话说到一半就没了） */
+    repairJson(s) {
+      const stack = [];
+      let inStr = false;
+      let esc = false;
+      for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (c === '\\') esc = true;
+          else if (c === '"') inStr = false;
+          continue;
+        }
+        if (c === '"') inStr = true;
+        else if (c === '{' || c === '[') stack.push(c);
+        else if (c === '}' || c === ']') stack.pop();
+      }
+      if (!stack.length && !inStr) return s;
+      let out = s;
+      if (inStr) out += '"';
+      for (let i = stack.length - 1; i >= 0; i--) out += stack[i] === '{' ? '}' : ']';
+      return out;
+    },
+
+    /** 从模型输出里抠出 JSON（容忍 ```json 围栏、前后废话、顶层数组、被截断的尾巴） */
     extractJson(text) {
       if (!text) return null;
       let s = String(text).trim();
@@ -457,12 +505,16 @@
       let v = tryParse(s);
       if (v !== undefined) return v;
 
-      // 花括号配对扫描
-      const start = s.indexOf('{');
-      if (start >= 0) {
+      // 括号配对扫描：既认对象也认数组（模型有时直接给 [{...},{...}]）
+      for (const pair of [['{', '}'], ['[', ']']]) {
+        const open = pair[0];
+        const close = pair[1];
+        const start = s.indexOf(open);
+        if (start < 0) continue;
         let depth = 0;
         let inStr = false;
         let esc = false;
+        let end = -1;
         for (let i = start; i < s.length; i++) {
           const c = s[i];
           if (inStr) {
@@ -472,20 +524,24 @@
             continue;
           }
           if (c === '"') inStr = true;
-          else if (c === '{') depth++;
-          else if (c === '}') {
+          else if (c === open) depth++;
+          else if (c === close) {
             depth--;
             if (depth === 0) {
-              const sub = s.slice(start, i + 1);
-              v = tryParse(sub);
-              if (v !== undefined) return v;
-              // 修复尾逗号再试
-              v = tryParse(sub.replace(/,\s*([}\]])/g, '$1'));
-              if (v !== undefined) return v;
+              end = i;
               break;
             }
           }
         }
+        const sub = end >= 0 ? s.slice(start, end + 1) : s.slice(start);
+        v = tryParse(sub);
+        if (v !== undefined) return v;
+        // 修复尾逗号再试
+        v = tryParse(sub.replace(/,\s*([}\]])/g, '$1'));
+        if (v !== undefined) return v;
+        // 输出被截断：把缺的部分补上再试
+        v = tryParse(this.repairJson(sub));
+        if (v !== undefined) return v;
       }
       return null;
     },
