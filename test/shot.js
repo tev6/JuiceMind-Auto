@@ -236,19 +236,25 @@ async function installMock(page) {
   await new Promise((r) => setTimeout(r, 250));
   await page.screenshot({ path: path.join(OUT, '03-light-settings.png') });
 
-  // 总结页
+  // 总结（现在落在「对话」页里，作为一条聊天输出）
   await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');
     host.shadowRoot.querySelectorAll('.tab')[1].click();
   });
   await clickInPanel('btn-summary');
   await new Promise((r) => setTimeout(r, 900));
+  // 总结很长时对话区停在底部，截图往上滚一点，好让开头的小标题露出来
+  await page.evaluate(() => {
+    const log = document.getElementById('jm-ai-host').shadowRoot.querySelector('[data-ref="chatlog"]');
+    if (log) log.scrollTop = 0;
+  });
+  await new Promise((r) => setTimeout(r, 200));
   await page.screenshot({ path: path.join(OUT, '09-summary.png') });
 
   // 对话页（流式，用假响应）
   await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');
-    host.shadowRoot.querySelectorAll('.tab')[2].click();
+    host.shadowRoot.querySelectorAll('.tab')[1].click();
     host.shadowRoot.querySelector('[data-ref="chat-in"]').value = '用一句话解释 while 和 for 的区别';
   });
   await clickInPanel('btn-send');
@@ -278,7 +284,7 @@ async function installMock(page) {
   await page.evaluate(() => {
     const host = document.getElementById('jm-ai-host');
     host.shadowRoot.querySelector('.fab').click();
-    host.shadowRoot.querySelectorAll('.tab')[3].click();
+    host.shadowRoot.querySelectorAll('.tab')[2].click();
     const d = host.shadowRoot.querySelector('details.adv');
     if (d) d.open = true;
     const pane = host.shadowRoot.querySelector('.pane[data-pane="cfg"]');

@@ -9,7 +9,7 @@
 给 [play.juicemind.com](https://play.juicemind.com) 用的 Tampermonkey 脚本：识别页面上的题目，调用大模型 API 生成答案，再全流程、全自动地填回页面并提交。
 
 [![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.13.0-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![Version](https://img.shields.io/badge/version-1.14.0-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![插件面板：扫描出题目并生成答案](docs/img/panel.png)
@@ -18,6 +18,7 @@
 
 - [功能](#功能)
 - [安装](#安装)
+- [更新插件](#更新插件)
 - [配置](#配置)
 - [使用](#使用)
 - [常见问题](#常见问题)
@@ -34,13 +35,13 @@
 | **批量答题** | 一次请求答完整页，5 题页面实测输入 token 降 70% |
 | **省 token** | 上下文按题截取、解析默认关闭、按题型收紧 max_tokens |
 | **拟人写入** | 代码题逐字敲进编辑器，随机节奏与停顿，不是一次整篇替换 |
-| **总结速学** | 教程页压成速学笔记：一句总结、核心要点、关键词表、易错点、自测题 |
+| **总结速学** | 教程页压成速学笔记：一句总结、核心要点、关键词表、易错点、自测题——笔记直接落在对话里，可以接着往下问 |
 | **对话问答** | 带 Markdown 渲染、流式输出、一键复制代码块 |
 | **中英一键切换** | 标题栏拨动开关，界面文字和模型输出语言一起切 |
 | **题型覆盖** | 选择 / 多选 / 简答 / 论述 / 填空 + CodeMirror 编程题 + 内嵌 IDE |
 | **悬浮窗** | 可拖动、可折叠成圆钮，页脚显示本会话 token 用量 |
 
-![总结页：把一页教程压成速学笔记](docs/img/summary.png)
+![总结：一页教程压成速学笔记，直接落在对话里](docs/img/summary.png)
 
 ## 安装
 
@@ -66,9 +67,22 @@
 4. 删掉模板，粘贴，保存（Ctrl+S / Cmd+S）。
 5. 打开JuiceMind的任意课程页。
 
-> 手动粘贴的脚本照样能自动更新——脚本头带 `@updateURL`，Tampermonkey 会自己拉新版。要是没更新，去脚本的「设置」页勾上「检查更新」，见「常见问题」。
+> 手动粘贴的脚本照样能自动更新——脚本头带 `@updateURL`，Tampermonkey 会自己拉新版。想手动拉新版，见「[更新插件](#更新插件)」。
 
 > 脚本只在应用端域名 `play.juicemind.com` 与 `classes.juicemind.com` 运行；营销站 `juicemind.com` 只有介绍页，不会注入面板。
+
+## 更新插件
+
+脚本会自己更新，但 Tampermonkey 大约一天才查一次，而且查到之后还要你点确认才会替换，所以新版本很容易被漏掉。想手动更新：
+
+1. 点浏览器工具栏上的 **Tampermonkey 图标**。
+2. 在展开的列表里找到 **JuiceMind 答题助手**，点 **Edit**。
+3. 脚本自己的页面会在新标签页打开，切到 **Settings** 标签。
+4. 往下拉到 **Updates**，点 **Check for userscripts updates**。
+
+Tampermonkey 会拿 GitHub 上的版本号和本地比一比，有新版本就问你一句要不要装——点「确定」，再刷新 JuiceMind 那个页面就是新版了。
+
+> Tampermonkey 的脚本列表页上也有一个「检查更新」按钮，作用一样，只是会一次更新你所有脚本。
 
 ## 配置
 
@@ -89,9 +103,9 @@
 | 场景 | 使用方法 |
 | --- | --- |
 | **一键完成整页** | 点「**一键完成本页**」——检测 → 生成 → 填入 → 提交，逐题走同一套流程 |
-| 解多题 | `扫描页面` → `生成全部` → `填入全部` |
+| 解多题 | `扫描页面` → `生成全部` → `填入全部`。三个按钮按进度依次出现，你只会看到当前能做的这一步；`扫描页面` 一直留着，想重扫随时点 |
 | 解单题 | `扫描页面` → 该题卡片上点 `生成` → `填入` |
-| 纯教程页 | 切到「总结」一键生成速学笔记，或在「对话」中问某个知识点 |
+| 纯教程页 | 切到「对话」，点「总结本页」生成速学笔记，再在同一个输入框里接着问 |
 
 每道题的结果都会回报给你，你始终知道站点到底收没收这份答案。
 
@@ -101,7 +115,7 @@
 
 **Tampermonkey 弹「跨域资源」授权窗** — 点 `Always allow domain` 放行这个 API 域名，或者点 `Always allow` 以后不再看到。脚本已经声明了跨域访问权限，只有装的是老版本脚本、或者 Tampermonkey 设成严格模式时才会弹。见「配置」。
 
-**脚本没有自动更新** — Tampermonkey 大约一天才查一次 `@updateURL`，而且查到之后还要你点确认才会替换，所以新版本很容易被漏掉。想立刻拉最新版：打开 Tampermonkey 面板，对这个脚本点「检查更新」。如果是手动粘贴安装的，再打开脚本的「设置」页，确认勾上了「检查更新」，并且 Update URL 填的是那条 raw 链接。
+**脚本没有自动更新** — Tampermonkey 大约一天才查一次 `@updateURL`，而且查到之后还要你点确认才会替换，所以新版本很容易被漏掉。想立刻拉最新版，照 [更新插件](#更新插件) 里的步骤走：工具栏图标 → 展开脚本 → **Edit** → **Settings** → **Updates** → **Check for userscripts updates**。Tampermonkey 的脚本列表页上也有一个「检查更新」按钮，会一次更新你所有脚本。
 
 **面板没出现** — 脚本没启用，或不在 `play.juicemind.com` / `classes.juicemind.com` 下。刷新后按 `Alt + J`。
 
@@ -123,7 +137,9 @@
 
 **「一键完成本页」具体做了什么？** 每道题依次：填入答案、点提交、等结果、关弹窗。生成阶段仍然是一次请求答完整页；只有填入和提交是逐题做的。
 
-**进阶设置在哪？** 设置页底部的折叠区——温度、最大 tokens、上下文长度、补充提示词、解释语言，以及「独立设置大模型输出语言」（默认不勾选，模型输出跟着右上角语言开关走）。
+**进阶设置在哪？** 设置页底部的折叠区——温度、两个 token 上限、上下文长度、补充提示词、解释语言，以及「独立设置大模型输出语言」（默认不勾选，模型输出跟着右上角语言开关走）。
+
+**两个 token 上限是干什么的？** 「答案生成最大 tokens」管的是生成答案时的输出上限（默认 2048），「页面总结最大 tokens」管的是页面总结和对话回复（默认 4096）。分开算之后，一篇长总结就不会再把答案的额度吃掉。
 
 **怎么展开收起的扫描、看 token 用量、挪面板？** 扫描收起后，点它上方可以展开看完整题干、全部选项和完整答案。页脚显示本会话累计的 token 用量，请求进行中可以点「停止」中断，已生成的内容会保留。拖标题栏或底部移动整窗，收起后变成可拖动的圆钮。
 
@@ -134,7 +150,7 @@
 - 改完 `src/` 后运行 `node scripts/build.mjs` 重新生成 bundle；CI 会校验两者是否一致
 - 发布循环：`node scripts/build.mjs --bump patch` 一次性改 `@version`、`VERSION`、`package.json` 并重建 bundle。CI 会在「bundle 变了但版本号没变」时拦下这次推送——Tampermonkey 只认版本号，没升号的发布学生端永远收不到
 - 学生端会自动升级：脚本头带 `@updateURL`，Tampermonkey 每次检查到版本号变化就拉新版
-- 本地测试：`npm i` → `npm test`（jsdom 154 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式 / 一键全流程，需要本机 Chrome）
+- 本地测试：`npm i` → `npm test`（jsdom 195 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式 / 一键全流程，需要本机 Chrome）
 - 文档配图：`npm run shots` 用本地模拟页生成，不含任何个人信息
 - 图标：设计稿在 `assets/icon/`——改 SVG 时保持坐标取偶数，再跑 `node assets/icon/render.cjs` 重新生成 PNG
 - 真实页验收与截图：把条目 ID 填进 `test/items.local.json`（模板 `test/items.example.json`，该文件不进仓库），再跑 `node test/real.js` / `node test/shots-real.js`
@@ -149,6 +165,7 @@
 
 完整历史见 [CHANGELOG.md](CHANGELOG.md)。
 
+- **1.14.0** — **面板理顺了**：「总结」和「对话」合成一个「对话」页，速学笔记就作为一条回复落在里面，底下带复制按钮，可以接着往下问；「扫描页面」「生成全部」「填入全部」改成按进度依次出现，不用一次看全；答案生成和页面总结也拆成了两个 token 上限
 - **1.13.0** — **已经提交过的页面改成跳过，不再报错**：题目一旦交上去，站点的「Submit Answer」就会永久禁用（状态变成 *Needs grading* / *Graded*）。现在脚本认得这个状态，会明确提示，并且不去碰那个按钮
 - **1.12.3** — **修好了两个把答题卡死的报错**：「提交按钮还是禁用状态」和「模型未返回可解析的 JSON」。提交前会一直等到页面真的收下这道答案（页面漏掉第一次点击就把选项再点一次）；输出预算也放宽到了带思考的模型够用的程度，被截断一半的答案会尽量补全而不是直接丢掉
 - **1.12.2** — 新插件图标：两行正在被写下的文字 + 一支斜切光标，替换原来的四角星；Tampermonkey 面板里的脚本图标同步更新

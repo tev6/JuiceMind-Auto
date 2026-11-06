@@ -398,13 +398,15 @@
       ];
       this._batch = false;
 
+      // 批量答整页的预算：按题型累加，但始终受「答案生成最大 tokens」这个上限约束
+      const answerCap = Number(Store.get('maxTokens')) || 2048;
       const cap = questions.reduce((sum, q) => sum + this.maxTokensFor(q), 0);
-      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(1200, cap)) });
+      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(answerCap, Math.min(8192, Math.max(1200, cap))) });
 
       let parsed = LLM.extractJson(res.text);
       if (!parsed) {
         log('批量没解析出 JSON，放宽输出预算重试一次');
-        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(4096, cap * 2)) });
+        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(answerCap, Math.min(8192, Math.max(4096, cap * 2))) });
         parsed = LLM.extractJson(res.text);
       }
       let list = parsed;

@@ -231,7 +231,7 @@ function ok(name, cond, extra) {
       uiLang: window.__JMAI__.Store.get('uiLang'),
     };
   });
-  ok('切到英文：标签变英文', afterEn.lang === 'en' && afterEn.tabs.join(',') === 'Solve,Summary,Chat,Settings', afterEn.tabs);
+  ok('切到英文：标签变英文', afterEn.lang === 'en' && afterEn.tabs.join(',') === 'Solve,Chat,Settings', afterEn.tabs);
   ok('切到英文：按钮文案跟着变', afterEn.scan === 'Scan page', afterEn.scan);
   ok('切到英文：设置页也跟着变', afterEn.cfg.some((x) => /Provider preset|API Base URL/.test(x)), afterEn.cfg);
   ok('语言写入配置', afterEn.uiLang === 'en', afterEn.uiLang);
@@ -247,12 +247,12 @@ function ok(name, cond, extra) {
       tabs: Array.from(host.shadowRoot.querySelectorAll('.tab')).map((t) => t.textContent.trim()),
     };
   });
-  ok('再点一次回到中文', afterZh.lang === 'zh' && afterZh.tabs.join(',') === '答题,总结,对话,设置', afterZh.tabs);
+  ok('再点一次回到中文', afterZh.lang === 'zh' && afterZh.tabs.join(',') === '答题,对话,设置', afterZh.tabs);
 
 
   console.log('\n【7】标签色块滑动 + 动画开关');
   const ind = [];
-  for (const i of [0, 1, 2, 3]) {
+  for (const i of [0, 1, 2]) {
     await page.evaluate((k) => {
       document.getElementById('jm-ai-host').shadowRoot.querySelectorAll('.tab')[k].click();
     }, i);
@@ -268,7 +268,7 @@ function ok(name, cond, extra) {
       })
     );
   }
-  ok('色块会跟随标签移动', ind[0].x < ind[3].x && ind[0].x !== ind[2].x, ind.map((o) => o.x));
+  ok('色块会跟随标签移动', ind[0].x < ind[2].x && ind[0].x !== ind[1].x, ind.map((o) => o.x));
   ok('色块宽度与标签一致', ind.every((o) => Math.abs(o.w - o.tabW) <= 2), ind.map((o) => [o.w, o.tabW]));
 
   const animOff = await page.evaluate(() => {
@@ -289,7 +289,7 @@ function ok(name, cond, extra) {
 
   const scrollGap = await page.evaluate(() => {
     const h = document.getElementById('jm-ai-host').shadowRoot;
-    h.querySelectorAll('.tab')[3].click();
+    h.querySelectorAll('.tab')[2].click();
     const pane = h.querySelector('.pane[data-pane="cfg"]');
     return { pr: getComputedStyle(pane).paddingRight, sw: pane.offsetWidth - pane.clientWidth };
   });

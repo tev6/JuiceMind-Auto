@@ -2,6 +2,23 @@
 
 The full version history. The README only keeps the most recent versions; new ones move here.
 
+## 1.14.0
+
+- **"Summary" and "Chat" are now a single "Chat" tab.**
+  The quick-study notes used to live on a tab of their own. Now pressing **Summarize page** puts them in the chat as a reply:
+  - a copy button sits right under the notes, so you can grab the whole thing in one click;
+  - the summary stays in the chat context, so follow-up questions can build on it;
+  - the separate *Summary* tab is gone — the chat keeps a single **Summarize page** button at the top.
+- **The three buttons on the answer tab now show up in order.**
+  At first only **Scan page** is there; **Generate all** appears once there are questions to answer, and **Fill all** once there are answers to fill in. You only ever see the step you can actually take next.
+  **Scan page** stays put, so rescanning is always one click away.
+- **The "Expand all" button is gone.**
+  It toggled every question at once, which gets confusing as soon as there are more than a couple of them; the arrow on each card is clearer.
+- **Answers and page summaries now have separate token budgets.**
+  Settings gained *Max tokens (page summary)* (4096 by default), and the old *max tokens* is now *Max tokens (answers)* (2048 by default).
+  A page summary takes a lot more words than an answer, and keeping the budgets apart stops a long summary from eating the room your answers need.
+- The README now has an **Updating** section: toolbar icon → expand the script → **Edit** → **Settings** → **Updates** → **Check for userscripts updates**.
+
 ## 1.13.0
 
 - **Already-submitted pages are now skipped instead of failing.**

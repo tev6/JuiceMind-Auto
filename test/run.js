@@ -76,6 +76,9 @@ const doc = window.document;
   const host = doc.getElementById('jm-ai-host');
   ok('悬浮窗已插入（shadow host）', !!host);
   ok('shadow root 可用', host && host.shadowRoot && !!host.shadowRoot.querySelector('.panel'));
+  ok('初始只显示「扫描页面」', host.shadowRoot.querySelector('[data-ref="btn-solve"]').hidden && host.shadowRoot.querySelector('[data-ref="btn-fill"]').hidden);
+  ok('没有「展开全部」按钮', !host.shadowRoot.querySelector('[data-ref="btn-expand"]'));
+  ok('标签只有 答题 / 对话 / 设置', host.shadowRoot.querySelectorAll('.tab').length === 3);
   if (!J) process.exit(1);
 
   console.log('\n【2】页面识别');
@@ -83,6 +86,8 @@ const doc = window.document;
   ok('识别为 item 页', scan.kind === 'item', scan.kind);
   ok('标题取自 h1', scan.title === 'Lesson 3 · Loops', scan.title);
   ok('上下文包含教程正文', /learn about loops/.test(scan.context), scan.context.slice(0, 60));
+  ok('扫描后出现「生成全部」', !host.shadowRoot.querySelector('[data-ref="btn-solve"]').hidden);
+  ok('还没生成答案，不显示「填入全部」', host.shadowRoot.querySelector('[data-ref="btn-fill"]').hidden);
 
   console.log('\n【3】题目抽取');
   const byType = {};
@@ -159,6 +164,8 @@ const doc = window.document;
   ok('题目卡片已渲染', host.shadowRoot.querySelectorAll('.q').length === 5, host.shadowRoot.querySelectorAll('.q').length);
   ok('卡片含题型徽章', /选择题/.test(host.shadowRoot.querySelector('.q').textContent));
   ok('已生成的题显示答案区', host.shadowRoot.querySelectorAll('.q .answer').length >= 2);
+  ok('有答案后出现「填入全部」', !host.shadowRoot.querySelector('[data-ref="btn-fill"]').hidden);
+  ok('「扫描页面」始终保留', !host.shadowRoot.querySelector('[data-ref="btn-scan"]').hidden);
 
   console.log('\n【9】提示词组装');
   const sys = J.Solvers.systemPrompt();
@@ -171,6 +178,10 @@ const doc = window.document;
   J.Store.set({ apiKey: 'sk-test', model: 'gpt-4o-mini' });
   ok('配置已持久化', J.Store.get('apiKey') === 'sk-test');
   ok('默认值不丢', J.Store.get('temperature') === 0.2, J.Store.get('temperature'));
+  ok('答案与总结各有各的 token 上限', J.Store.get('maxTokens') === 2048 && J.Store.get('summaryTokens') === 4096, {
+    max: J.Store.get('maxTokens'),
+    sum: J.Store.get('summaryTokens'),
+  });
   ok('dark 主题变量可计算', typeof J.Theme.read().primary === 'string');
   J.Store.set({ apiKey: '' });
 
@@ -209,6 +220,8 @@ const doc = window.document;
   ps.dispatchEvent(new window.Event('change', { bubbles: true }));
   ok('切到 DeepSeek 后建议含 deepseek-v4.1-flash', /deepseek-v4\.1-flash/.test(cfgBox.querySelector('datalist').innerHTML));
   ok('modelSuggestions("deepseek") 含 v4.1-flash', J.modelSuggestions('deepseek').includes('deepseek-v4.1-flash'));
+  ok('DeepSeek 预设的默认模型是 deepseek-flash', J.PRESETS.deepseek.model === 'deepseek-flash', J.PRESETS.deepseek.model);
+  ok('切到 DeepSeek 后模型框填入 deepseek-flash', cfgBox.querySelector('[data-k="model"]').value === 'deepseek-flash', cfgBox.querySelector('[data-k="model"]').value);
   ok('各供应商都有模型名单', ['openai', 'deepseek', 'moonshot', 'openrouter', 'google', 'xai'].every((k) => (J.PRESETS[k].models || []).length >= 3));
 
   mi.value = 'my-custom-model-x';
@@ -257,9 +270,7 @@ const doc = window.document;
   const card0b = host.shadowRoot.querySelector('[data-qid="' + q0.id + '"]');
   ok('点箭头后展开', card0b && card0b.classList.contains('expanded'));
   ok('展开后箭头翻转', card0b.querySelector('.chev').textContent === '▴');
-  host.shadowRoot.querySelector('[data-ref="btn-expand"]').click();
-  ok('「展开全部」按钮生效', host.shadowRoot.querySelectorAll('.q').length > 0);
-  ok('展开按钮文案会跟随', /收起/.test(host.shadowRoot.querySelector('[data-ref="btn-expand"]').textContent), host.shadowRoot.querySelector('[data-ref="btn-expand"]').textContent);
+  ok('单题展开仍可用（不再有「展开全部」）', !host.shadowRoot.querySelector('[data-ref="btn-expand"]'));
 
   console.log('\n【15】答案/代码可复制');
   const cpBtn = host.shadowRoot.querySelector('.q .answer-wrap .copy-btn');
@@ -328,7 +339,7 @@ const doc = window.document;
   }
   ok('可中止且不重试', aborted && errAbort && (errAbort.name === 'AbortError' || /已取消/.test(errAbort.message)), { aborted, msg: errAbort && errAbort.message });
 
-  console.log('\n【17】总结页 + Mac 快捷键');
+  console.log('\n【17】总结落进对话区 + Mac 快捷键');
   J.Store.set({ stream: false, apiKey: 'sk-test', model: 'm', baseUrl: 'https://api.openai.com/v1' });
   window.fetch = async () =>
     new Response(
@@ -339,13 +350,28 @@ const doc = window.document;
       { status: 200 }
     );
   await J.Actions.summarize();
-  const sumBox = host.shadowRoot.querySelector('[data-ref="sum-box"]');
-  ok('总结渲染出标题', !!sumBox.querySelector('h2'), sumBox.innerHTML.slice(0, 60));
-  ok('总结渲染出要点列表', sumBox.querySelectorAll('li').length >= 2);
-  ok('总结内容正确', /循环就是重复执行/.test(sumBox.textContent));
-  ok('复制按钮已启用', !host.shadowRoot.querySelector('[data-ref="btn-summary-copy"]').disabled);
-  J.UI.setTab('summary');
-  ok('切到总结标签仍是同一份内容', /循环就是重复执行/.test(sumBox.textContent));
+  const chatLog = host.shadowRoot.querySelector('[data-ref="chatlog"]');
+  const sumMsg = chatLog.querySelector('.sum-msg');
+  ok('总结作为一条聊天消息出现', !!sumMsg);
+  ok('总结渲染出标题', !!sumMsg.querySelector('h2'), sumMsg.innerHTML.slice(0, 60));
+  ok('总结渲染出要点列表', sumMsg.querySelectorAll('li').length >= 2);
+  ok('总结内容正确', /循环就是重复执行/.test(sumMsg.textContent));
+  ok('总结底部有复制按钮', !!sumMsg.querySelector('.sum-copy'));
+  ok('总结后自动切到对话标签', host.shadowRoot.querySelector('.pane[data-pane="chat"]').classList.contains('on'));
+  ok('总结写进了聊天上下文', J.App.chat.some((m) => m.kind === 'summary' && /循环就是重复执行/.test(m.content)));
+
+  // 接着追问，上下文里要带上刚才的总结
+  let cap2 = null;
+  window.fetch = async (url, init) => {
+    cap2 = JSON.parse((init && init.body) || '{}');
+    return new Response(JSON.stringify({ choices: [{ message: { content: '用 while 写。' } }], usage: { total_tokens: 6 } }), { status: 200 });
+  };
+  const chatInput = host.shadowRoot.querySelector('[data-ref="chat-in"]');
+  chatInput.value = '那循环怎么写？';
+  host.shadowRoot.querySelector('[data-ref="btn-send"]').click();
+  await new Promise((r) => setTimeout(r, 80));
+  ok('追问时上下文带上总结内容', /循环就是重复执行/.test(JSON.stringify((cap2 && cap2.messages) || [])), cap2 && cap2.messages && cap2.messages.length);
+  ok('总结用单独的 token 预算', cap2 && cap2.max_tokens === (J.Store.get('summaryTokens') || 4096), cap2 && cap2.max_tokens);
 
   // Mac 上 Option+J 的 e.key 是 '∆'，只能靠 e.code
   J.UI.setHidden(false);
@@ -394,6 +420,8 @@ const doc = window.document;
   ok('JSON 输出模式已移入高级设置', !!cfgRoot.querySelector('details.adv [data-k="jsonMode"]'));
   ok('控制台日志已移入高级设置', !!cfgRoot.querySelector('details.adv [data-k="debug"]'));
   ok('高级设置外不再有 JSON / 调试开关', !cfgRoot.querySelector('.adv-body ~ [data-k="jsonMode"]'));
+  ok('设置页有「答案生成最大 tokens」', !!cfgRoot.querySelector('[data-k="maxTokens"]'));
+  ok('设置页有「页面总结最大 tokens」', !!cfgRoot.querySelector('[data-k="summaryTokens"]'));
   J.UI.saveSettings();
   ok('保存设置不会抹掉 autoSubmit（功能保留）', J.Store.get('autoSubmit') === true, J.Store.get('autoSubmit'));
   ok('保存设置不会抹掉 autoRun（功能保留）', J.Store.get('autoRun') === true, J.Store.get('autoRun'));
@@ -717,6 +745,24 @@ const doc = window.document;
   ok('整页已提交时不白花 token', af8.reqs === 0, af8.reqs);
   ok('整页已提交时不算问题', af8.stat.failed.length === 0, af8.stat.failed);
 
+  console.log('\n【28】两套 token 预算互不干扰');
+  J.Store.set({ maxTokens: 1024, summaryTokens: 8192 });
+  let budgetBody = null;
+  window.fetch = async (u, init) => {
+    budgetBody = JSON.parse((init && init.body) || '{}');
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }], usage: { total_tokens: 3 } }), { status: 200 });
+  };
+  await J.LLM.chat({ messages: [{ role: 'user', content: 'x' }], stream: false, json: false, maxTokens: 8192 });
+  ok('调用方给的预算不会被答案预算压住', budgetBody.max_tokens === 8192, budgetBody.max_tokens);
+  await J.LLM.chat({ messages: [{ role: 'user', content: 'x' }], stream: false, json: false });
+  ok('不给预算时用配置里的答案预算', budgetBody.max_tokens === 1024, budgetBody.max_tokens);
+  J.Store.set({ maxTokens: 2048, summaryTokens: 4096 });
+
+  // 答案生成（批量）也要被「答案生成最大 tokens」卡住
+  const af9 = await runAutoFlowCase({ result: 'Correct', maxTokens: 1024 });
+  ok('批量答题的输出不超过「答案生成最大 tokens」', af9.budgets.length > 0 && af9.budgets.every((b) => b <= 1024), af9.budgets);
+  ok('批量答题按题型给的预算不超过上限', af9.budgets.length > 0 && af9.budgets.every((b) => b > 0 && b <= 1024), af9.budgets);
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {
@@ -875,9 +921,11 @@ async function runAutoFlowCase(opts) {
   // ---- 假模型：批量模式要返回 {"answers":[{"i":…}]} ----
   const letter = o.answer || 'A';
   let reqs = 0;
+  const budgets = [];
   w.fetch = async (u, init) => {
     reqs++;
     const body = JSON.parse((init && init.body) || '{}');
+    budgets.push(body.max_tokens);
     const joined = (body.messages || []).map((m) => m.content).join('\n');
     let payload;
     if (/批量作答/.test(joined)) {
@@ -892,6 +940,7 @@ async function runAutoFlowCase(opts) {
   w.eval(script);
   const J = w.__JMAI__;
   J.Store.set({ apiKey: 'sk-mock', model: 'mock', baseUrl: 'https://api.openai.com/v1', stream: false, jsonMode: true, humanType: false, explain: false, batchSolve: true });
+  if (o.maxTokens) J.Store.set({ maxTokens: o.maxTokens });
 
   const stat = await J.Actions.autoFlow();
   await new Promise((r) => setTimeout(r, 200));
@@ -901,6 +950,7 @@ async function runAutoFlowCase(opts) {
   return {
     stat,
     reqs,
+    budgets,
     submits: submits.length,
     leftOverModals: w.document.querySelectorAll('.MuiModal-root').length,
     cardStates: cards.map((c) => {

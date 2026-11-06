@@ -16,7 +16,7 @@
     deepseek: {
       label: 'DeepSeek',
       baseUrl: 'https://api.deepseek.com/v1',
-      model: 'deepseek-v4.1-flash',
+      model: 'deepseek-flash',
       models: ['deepseek-v4.1-flash', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-flash', 'deepseek-chat', 'deepseek-reasoner', 'deepseek-v3.2'],
     },
     moonshot: {
@@ -166,11 +166,13 @@
       const cfg = Store.get();
       const messages = opts.messages;
       const wantJson = opts.json !== false && cfg.jsonMode;
+      // 输出预算：答案走 maxTokens，总结/对话走 summaryTokens，由调用方指定
+      const budget = Number(opts.maxTokens) || Number(cfg.maxTokens) || 2048;
       let body = {
         model: cfg.model,
         messages,
         temperature: Number(cfg.temperature),
-        max_tokens: Math.max(64, Math.min(Number(opts.maxTokens) || Number(cfg.maxTokens), Number(cfg.maxTokens) || 4096)),
+        max_tokens: Math.max(64, Math.min(budget, 32768)),
         stream: !!opts.stream,
       };
       if (wantJson) body.response_format = { type: 'json_object' };

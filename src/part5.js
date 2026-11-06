@@ -8,7 +8,6 @@
     flow: false, // 一键全流程正在跑
     stopMark: 0, // 每按一次「停止」加一，长流程靠它判断用户是不是中途叫停了
     chat: [],
-    summary: null, // { text, url }
     mounted: false,
   };
 
@@ -138,7 +137,7 @@
 .body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0 12px 4px; }
 .pane { display: none; padding-bottom: 8px; }
 .pane.on { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.pane[data-pane="solve"], .pane[data-pane="cfg"], .pane[data-pane="summary"] { overflow-y: auto; }
+.pane[data-pane="solve"], .pane[data-pane="cfg"] { overflow-y: auto; }
 .pane {
   padding-right: 12px;              /* 内容与右侧滚动条之间留 12px */
   scrollbar-gutter: stable;
@@ -334,11 +333,9 @@
 
 .logo svg, .fab svg { display: block; }
 .logo { color: #fff; }
-.sum { font-size: 12.5px; }
-.sum .empty { padding: 18px 6px; }
-.sum h2 { font-size: 13.5px; }
-.sum table { font-size: 11.5px; }
-.pane[data-pane="summary"] { overflow-y: auto; }
+/* 总结：落在对话区里的一条回答，底部挂复制按钮 */
+.sum-msg .sum-body { white-space: normal; }
+.sum-copy { margin-top: 8px; font-size: 11px; padding: 3px 9px; }
 .fab { touch-action: none; }
 
 /* 语言开关：拨动样式 */
@@ -382,10 +379,6 @@ details.adv .adv-body { padding-top: 6px; }
 .check.sub label { display: block; margin: 2px 0 4px; }
 .check.sub select { width: 100%; }
 .check.sub.disabled { opacity: .45; }
-.sum.streaming::after {
-  content: '▍'; color: var(--jm-primary); margin-left: 1px;
-  animation: jmpulse 1s steps(2, start) infinite;
-}
 .toast {
   position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%) translateY(6px);
   background: var(--jm-toast-bg); color: var(--jm-toast-text); padding: 7px 12px; border-radius: 10px;
@@ -698,7 +691,6 @@ details.adv .adv-body { padding-top: 6px; }
           <div class="tabs">
             <span class="tab-ind" data-ref="tab-ind"></span>
             <button class="tab on" data-tab="solve">${L('答题', 'Solve')}</button>
-            <button class="tab" data-tab="summary">${L('总结', 'Summary')}</button>
             <button class="tab" data-tab="chat">${L('对话', 'Chat')}</button>
             <button class="tab" data-tab="cfg">${L('设置', 'Settings')}</button>
           </div>
@@ -709,22 +701,15 @@ details.adv .adv-body { padding-top: 6px; }
               </div>
               <div class="bar">
                 <button class="btn primary" data-ref="btn-scan">${L('扫描页面', 'Scan page')}</button>
-                <button class="btn" data-ref="btn-solve">${L('生成全部', 'Generate all')}</button>
-                <button class="btn" data-ref="btn-fill">${L('填入全部', 'Fill all')}</button>
-                <button class="btn ghost" data-ref="btn-expand" disabled>${L('展开全部', 'Expand all')}</button>
+                <button class="btn" data-ref="btn-solve" hidden>${L('生成全部', 'Generate all')}</button>
+                <button class="btn" data-ref="btn-fill" hidden>${L('填入全部', 'Fill all')}</button>
               </div>
               <div data-ref="qlist"><div class="empty">${L('点击「扫描页面」识别当前页面的题目', 'Click "Scan page" to find questions on this page')}<br/><span style="opacity:.7">${L('支持教程+题目、选择题、简答、编程、排序、填空', 'Tutorial + questions, multiple choice, short answer, coding, Parsons, fill-in-blank')}</span></div></div>
             </div>
-            <div class="pane" data-pane="summary">
+            <div class="pane" data-pane="chat">
               <div class="bar">
                 <button class="btn primary" data-ref="btn-summary">${L('总结本页', 'Summarize page')}</button>
-                <button class="btn ghost" data-ref="btn-summary-copy" disabled>${L('复制', 'Copy')}</button>
               </div>
-              <div class="sum md" data-ref="sum-box">
-                <div class="empty">${L('把这一页的教程压缩成速学笔记', 'Condense this tutorial into quick-study notes')}<br/><span style="opacity:.7">${L('一句话总结、核心要点、关键词表、易错点、自测题', 'One-line summary, key points, glossary, pitfalls, self-check')}</span></div>
-              </div>
-            </div>
-            <div class="pane" data-pane="chat">
               <div class="chat-log" data-ref="chatlog"></div>
               <div class="chat-in">
                 <textarea data-ref="chat-in" placeholder="${L('问点什么…（可自动带上当前页面内容）', 'Ask anything… (page content is attached)')}"></textarea>
@@ -744,7 +729,6 @@ details.adv .adv-body { padding-top: 6px; }
       this.renderSettings();
       this.renderQuestions();
       this.renderChat();
-      this.renderSummary();
       this.applyAnim();
       this.setTab(App.tab || 'solve', true);
       this.updateSub();
@@ -896,21 +880,10 @@ details.adv .adv-body { padding-top: 6px; }
       r['btn-solve'].addEventListener('click', () => Actions.solveAll());
       r['btn-fill'].addEventListener('click', () => Actions.fillAll());
       r['btn-auto'].addEventListener('click', () => Actions.autoFlow());
-      r['btn-expand'].addEventListener('click', () => {
-        const qs = (App.scan && App.scan.questions) || [];
-        const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
-        this.expandAll(!allOn);
-      });
       r['btn-stop'].addEventListener('click', () => Actions.stop());
 
-      // 总结
+      // 总结（结果直接落在对话区里）
       r['btn-summary'].addEventListener('click', () => Actions.summarize());
-      r['btn-summary-copy'].addEventListener('click', () => {
-        const t = App.summary && App.summary.text;
-        if (!t) return;
-        copyText(t);
-        UI.toast(L('已复制总结', 'Summary copied'));
-      });
 
       // 对话
       r['btn-send'].addEventListener('click', () => Actions.sendChat());
@@ -1007,7 +980,6 @@ details.adv .adv-body { padding-top: 6px; }
       this.refs.tabs.forEach((t) => t.classList.toggle('on', t.getAttribute('data-tab') === name));
       this.refs.panes.forEach((p) => p.classList.toggle('on', p.getAttribute('data-pane') === name));
       this.moveTabIndicator(!!instant);
-      if (name === 'summary') this.renderSummary();
     },
 
     /** 让色块贴到当前标签下面；instant=true 时不播放滑动动画 */
@@ -1111,7 +1083,19 @@ details.adv .adv-body { padding-top: 6px; }
       scan.questions.forEach((q, i) => frag.appendChild(this.renderQuestionCard(q, i)));
       box.innerHTML = '';
       box.appendChild(frag);
-      this.syncExpandBtn();
+      this.syncSolveButtons();
+    },
+
+    /**
+     * 三个动作按进度依次出现：先扫描，扫出题目才有「生成全部」，
+     * 生成出答案才有「填入全部」。「扫描页面」一直留着，随时可以重扫。
+     */
+    syncSolveButtons() {
+      const qs = (App.scan && App.scan.questions) || [];
+      const bSolve = this.refs['btn-solve'];
+      const bFill = this.refs['btn-fill'];
+      if (bSolve) bSolve.hidden = !qs.length;
+      if (bFill) bFill.hidden = !qs.some((q) => !!q.answer);
     },
 
     /** 展开状态（按题目 id 记住，重渲染不丢） */
@@ -1128,25 +1112,6 @@ details.adv .adv-body { padding-top: 6px; }
       const idx = App.scan ? App.scan.questions.indexOf(q) : 0;
       const old = this.refs.qlist.querySelector('[data-qid="' + q.id + '"]');
       if (old) old.replaceWith(this.renderQuestionCard(q, idx));
-      this.syncExpandBtn();
-    },
-
-    expandAll(on) {
-      const qs = (App.scan && App.scan.questions) || [];
-      qs.forEach((q) => {
-        if (on) this._expanded.add(q.id);
-        else this._expanded.delete(q.id);
-      });
-      this.renderQuestions();
-    },
-
-    syncExpandBtn() {
-      const b = this.refs['btn-expand'];
-      if (!b) return;
-      const qs = (App.scan && App.scan.questions) || [];
-      const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
-      b.textContent = allOn ? L('收起全部', 'Collapse all') : L('展开全部', 'Expand all');
-      b.disabled = !qs.length;
     },
 
     renderQuestionCard(q, i) {
@@ -1360,61 +1325,65 @@ details.adv .adv-body { padding-top: 6px; }
       const idx = App.scan.questions.indexOf(q);
       const fresh = this.renderQuestionCard(q, idx);
       old.replaceWith(fresh);
+      this.syncSolveButtons();
     },
 
-    /* ------------------------- 总结 ------------------------- */
+    /* ------------------------- 总结（落在对话区里） ------------------------- */
 
-    summaryBox() {
-      return this.refs && this.refs['sum-box'];
+    /** 总结正文底部的复制按钮 */
+    summaryCopyBtn(text) {
+      const b = document.createElement('button');
+      b.className = 'btn ghost sum-copy';
+      b.textContent = L('复制总结', 'Copy summary');
+      b.addEventListener('click', () => {
+        copyText(text || '');
+        this.toast(L('已复制总结', 'Summary copied'));
+      });
+      return b;
     },
 
-    /** 渲染（或恢复缓存）当前页的总结 */
-    renderSummary() {
-      const box = this.summaryBox();
-      if (!box) return;
-      const s = App.summary;
-      const samePage = s && s.url === location.href;
-      if (!s || !s.text || !samePage) {
-        box.innerHTML = '';
-        const empty = document.createElement('div');
-        empty.className = 'empty';
-        empty.innerHTML =
-          L('把这一页的教程压缩成速学笔记', 'Condense this tutorial into quick-study notes') + '<br/><span style="opacity:.7">' + L('一句话总结、核心要点、关键词表、易错点、自测题', 'One-line summary, key points, glossary, pitfalls, self-check') + '</span>';
-        box.appendChild(empty);
-        if (this.refs['btn-summary-copy']) this.refs['btn-summary-copy'].disabled = true;
-        return;
-      }
-      box.innerHTML = '';
-      box.appendChild(MD.render(s.text));
-      if (this.refs['btn-summary-copy']) this.refs['btn-summary-copy'].disabled = false;
-    },
-
-    /** 总结是否正在流式接收（显示光标） */
-    setSummaryStreaming(on) {
-      const box = this.summaryBox();
-      if (box) box.classList.toggle('streaming', !!on);
+    /** 开一个「正在总结」的气泡，边生成边往里填 */
+    startSummaryBubble() {
+      const log = this.renderChat();
+      // 聊天区还是空的，先把「可以直接提问」的提示撤掉，别和总结挤在一起
+      const hint = log.querySelector('.cmsg.sys');
+      if (hint) hint.remove();
+      const d = document.createElement('div');
+      d.className = 'cmsg ai streaming sum-msg';
+      const body = document.createElement('div');
+      body.className = 'sum-body md';
+      d.appendChild(body);
+      log.appendChild(d);
+      this.scrollChatToEnd();
+      return d;
     },
 
     /** 流式更新总结正文（80ms 节流） */
-    updateSummary(text) {
-      this._sumPending = text;
-      if (this._sumTimer) return;
-      this._sumTimer = setTimeout(() => {
-        this._sumTimer = 0;
-        const box = this.summaryBox();
-        if (!box) return;
-        box.innerHTML = '';
-        box.appendChild(MD.render(this._sumPending || ''));
-        box.scrollTop = box.scrollHeight;
+    updateSummaryBubble(bubble, text) {
+      bubble._sumPending = text;
+      if (bubble._sumTimer) return;
+      bubble._sumTimer = setTimeout(() => {
+        bubble._sumTimer = 0;
+        const body = bubble.querySelector('.sum-body');
+        if (!body) return;
+        body.innerHTML = '';
+        body.appendChild(MD.render(bubble._sumPending || ''));
+        this.scrollChatToEnd();
       }, 80);
     },
 
-    setSummaryText(text) {
-      App.summary = { text, url: location.href };
-      this._sumPending = text;
-      this.renderSummary();
-      const box = this.summaryBox();
-      if (box) box.scrollTop = 0;
+    /** 总结定稿：去掉光标，底部挂上复制按钮 */
+    finishSummaryBubble(bubble, text) {
+      const body = bubble.querySelector('.sum-body');
+      if (body) {
+        body.innerHTML = '';
+        body.appendChild(MD.render(text || ''));
+      }
+      bubble.classList.remove('streaming');
+      const old = bubble.querySelector('.sum-copy');
+      if (old) old.remove();
+      bubble.appendChild(this.summaryCopyBtn(text));
+      this.scrollChatToEnd();
     },
 
     /* ------------------------- 对话 ------------------------- */
@@ -1444,7 +1413,17 @@ details.adv .adv-body { padding-top: 6px; }
       for (const m of App.chat) {
         const d = document.createElement('div');
         d.className = 'cmsg ' + (m.role === 'user' ? 'user' : m.role === 'assistant' ? 'ai' : 'sys');
-        this.fillBubble(d, m.role, m.content);
+        if (m.kind === 'summary') {
+          // 总结也是一条「回答」，正文单独放一个子元素，方便在下面挂复制按钮
+          d.classList.add('sum-msg');
+          const body = document.createElement('div');
+          body.className = 'sum-body md';
+          body.appendChild(MD.render(m.content || ''));
+          d.appendChild(body);
+          d.appendChild(this.summaryCopyBtn(m.content));
+        } else {
+          this.fillBubble(d, m.role, m.content);
+        }
         log.appendChild(d);
       }
       this.scrollChatToEnd();
@@ -1547,9 +1526,14 @@ details.adv .adv-body { padding-top: 6px; }
                 <input type="number" step="0.1" min="0" max="2" data-k="temperature" value="${cfg.temperature}" />
               </div>
               <div class="field">
-                <label>${L('最大 tokens', 'Max tokens')}</label>
+                <label>${L('答案生成最大 tokens', 'Max tokens (answers)')}</label>
                 <input type="number" step="128" min="256" max="32768" data-k="maxTokens" value="${cfg.maxTokens}" />
               </div>
+            </div>
+            <div class="field">
+              <label>${L('页面总结最大 tokens', 'Max tokens (page summary)')}</label>
+              <input type="number" step="256" min="512" max="32768" data-k="summaryTokens" value="${cfg.summaryTokens}" />
+              <div class="hint" style="margin:4px 0 0">${L('总结一整页要写 300~500 字，默认 4096；对话回复也用这个值。', 'A page summary runs 300–500 characters, so 4096 by default; chat replies use the same value.')}</div>
             </div>
             <div class="field">
               <label>${L('上下文长度（字）', 'Context length (chars)')}</label>
@@ -1654,6 +1638,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('model', String(read('model') || '').trim());
       put('temperature', Number(read('temperature')) || 0);
       put('maxTokens', Number(read('maxTokens')) || 2048);
+      put('summaryTokens', Number(read('summaryTokens')) || 4096);
       put('contextChars', Number(read('contextChars')) || 6000);
       put('language', read('language'));
       put('outputLangCustom', read('outputLangCustom'));

@@ -442,11 +442,13 @@
       UI.status(L('思考中…', 'Thinking…'), 'busy');
       let acc = '';
       let firstDelta = true;
+      const budget = Number(Store.get('summaryTokens')) || 4096;
       try {
         const res = await LLM.chat({
           messages,
           stream: !!cfg.stream,
           json: false,
+          maxTokens: budget,
           onDelta: (piece) => {
             if (firstDelta) {
               firstDelta = false;
@@ -462,7 +464,7 @@
           UI.updateBubble(bubble, acc);
         }
         if (!acc) {
-          const res2 = await LLM.chat({ messages, stream: false, json: false });
+          const res2 = await LLM.chat({ messages, stream: false, json: false, maxTokens: budget });
           acc = res2.text;
           UI.updateBubble(bubble, acc);
         }
@@ -493,7 +495,7 @@
 
     /* ------------------------- 总结 ------------------------- */
 
-    /** 把当前页正文压缩成速学笔记 */
+    /** 把当前页正文压缩成速学笔记（结果作为一条聊天消息） */
     async summarize() {
       if (App.busy) return;
       if (!this.ensureKey()) return;
@@ -505,10 +507,9 @@
 
       App.busy = true;
       UI.setStopVisible(true);
-      UI.setTab('summary');
-      UI.updateSummary('');
-      UI.setSummaryStreaming(true);
+      UI.setTab('chat');
       UI.status(L('正在总结本页…', 'Summarizing…'), 'busy');
+      const bubble = UI.startSummaryBubble();
 
       const outEn = outputLanguage() === 'en';
       const sys = outEn
@@ -578,33 +579,40 @@
           messages,
           stream: true, // 总结固定走流式：边生成边显示
           json: false,
+          maxTokens: Number(Store.get('summaryTokens')) || 4096,
           onDelta: (piece) => {
             if (first) {
               first = false;
               UI.status(L('接收中…', 'Receiving…'), 'busy');
             }
             acc += piece;
-            UI.updateSummary(acc);
+            UI.updateSummaryBubble(bubble, acc);
           },
         });
         if (!acc && res && res.text) {
           acc = res.text;
-          UI.updateSummary(acc);
+          UI.updateSummaryBubble(bubble, acc);
         }
         if (!acc) throw new Error(L('模型没有返回内容', 'Model returned nothing'));
-        UI.setSummaryText(acc);
+        UI.finishSummaryBubble(bubble, acc);
+        App.chat.push({ role: 'assistant', content: acc, kind: 'summary' });
         UI.status(L('总结完成', 'Summary ready'));
         UI.toast(L('总结完成', 'Summary ready'));
       } catch (e) {
         if (e && e.name === 'AbortError') {
-          if (acc) UI.setSummaryText(acc);
+          if (acc) {
+            UI.finishSummaryBubble(bubble, acc);
+            App.chat.push({ role: 'assistant', content: acc, kind: 'summary' });
+          } else {
+            bubble.remove();
+          }
           UI.status(L('已停止', 'Stopped'));
         } else {
+          bubble.remove();
           UI.status(L('总结失败：', 'Summary failed: ') + e.message, 'err');
           UI.toast(L('总结失败：', 'Summary failed: ') + e.message, 3600);
         }
       } finally {
-        UI.setSummaryStreaming(false);
         App.busy = false;
         UI.setStopVisible(false);
         UI.updateUsage();
@@ -686,11 +694,9 @@
         App.scan = null;
         PageModel.scope = null;
         App.chat = [];
-        App.summary = null;
         if (UI.refs) {
           UI.renderQuestions();
           UI.renderChat();
-          UI.renderSummary();
         }
         if (Store.get('autoRun')) {
           await waitForContent(12000);
@@ -728,7 +734,7 @@
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, HumanTyping, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
+        W.__JMAI__ = { App, UI, Actions, PageModel, Solvers, HumanTyping, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
       } catch (e) {
         /* ignore */
       }

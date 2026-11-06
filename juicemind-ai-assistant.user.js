@@ -5,7 +5,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.13.0
+// @version      1.14.0
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       tev6
 // @match        https://play.juicemind.com/*
@@ -55,7 +55,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.13.0';
+  const VERSION = '1.14.0';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -226,7 +226,8 @@
     apiKey: '',
     model: 'gpt-4o-mini',
     temperature: 0.2,
-    maxTokens: 2048,
+    maxTokens: 2048, // 答案生成的上限
+    summaryTokens: 4096, // 页面总结 / 对话的上限（总结一整页要写的比较多）
     extraHeaders: '',
     explain: false, // 是否让模型返回解析（更耗 token，默认关）
     jsonMode: true, // 请求 response_format=json_object，失败自动降级
@@ -1326,7 +1327,7 @@
     deepseek: {
       label: 'DeepSeek',
       baseUrl: 'https://api.deepseek.com/v1',
-      model: 'deepseek-v4.1-flash',
+      model: 'deepseek-flash',
       models: ['deepseek-v4.1-flash', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-flash', 'deepseek-chat', 'deepseek-reasoner', 'deepseek-v3.2'],
     },
     moonshot: {
@@ -1476,11 +1477,13 @@
       const cfg = Store.get();
       const messages = opts.messages;
       const wantJson = opts.json !== false && cfg.jsonMode;
+      // 输出预算：答案走 maxTokens，总结/对话走 summaryTokens，由调用方指定
+      const budget = Number(opts.maxTokens) || Number(cfg.maxTokens) || 2048;
       let body = {
         model: cfg.model,
         messages,
         temperature: Number(cfg.temperature),
-        max_tokens: Math.max(64, Math.min(Number(opts.maxTokens) || Number(cfg.maxTokens), Number(cfg.maxTokens) || 4096)),
+        max_tokens: Math.max(64, Math.min(budget, 32768)),
         stream: !!opts.stream,
       };
       if (wantJson) body.response_format = { type: 'json_object' };
@@ -2257,13 +2260,15 @@
       ];
       this._batch = false;
 
+      // 批量答整页的预算：按题型累加，但始终受「答案生成最大 tokens」这个上限约束
+      const answerCap = Number(Store.get('maxTokens')) || 2048;
       const cap = questions.reduce((sum, q) => sum + this.maxTokensFor(q), 0);
-      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(1200, cap)) });
+      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(answerCap, Math.min(8192, Math.max(1200, cap))) });
 
       let parsed = LLM.extractJson(res.text);
       if (!parsed) {
         log('批量没解析出 JSON，放宽输出预算重试一次');
-        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(8192, Math.max(4096, cap * 2)) });
+        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: Math.min(answerCap, Math.min(8192, Math.max(4096, cap * 2))) });
         parsed = LLM.extractJson(res.text);
       }
       let list = parsed;
@@ -3308,7 +3313,6 @@
     flow: false, // 一键全流程正在跑
     stopMark: 0, // 每按一次「停止」加一，长流程靠它判断用户是不是中途叫停了
     chat: [],
-    summary: null, // { text, url }
     mounted: false,
   };
 
@@ -3438,7 +3442,7 @@
 .body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 0 12px 4px; }
 .pane { display: none; padding-bottom: 8px; }
 .pane.on { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.pane[data-pane="solve"], .pane[data-pane="cfg"], .pane[data-pane="summary"] { overflow-y: auto; }
+.pane[data-pane="solve"], .pane[data-pane="cfg"] { overflow-y: auto; }
 .pane {
   padding-right: 12px;              /* 内容与右侧滚动条之间留 12px */
   scrollbar-gutter: stable;
@@ -3634,11 +3638,9 @@
 
 .logo svg, .fab svg { display: block; }
 .logo { color: #fff; }
-.sum { font-size: 12.5px; }
-.sum .empty { padding: 18px 6px; }
-.sum h2 { font-size: 13.5px; }
-.sum table { font-size: 11.5px; }
-.pane[data-pane="summary"] { overflow-y: auto; }
+/* 总结：落在对话区里的一条回答，底部挂复制按钮 */
+.sum-msg .sum-body { white-space: normal; }
+.sum-copy { margin-top: 8px; font-size: 11px; padding: 3px 9px; }
 .fab { touch-action: none; }
 
 /* 语言开关：拨动样式 */
@@ -3682,10 +3684,6 @@ details.adv .adv-body { padding-top: 6px; }
 .check.sub label { display: block; margin: 2px 0 4px; }
 .check.sub select { width: 100%; }
 .check.sub.disabled { opacity: .45; }
-.sum.streaming::after {
-  content: '▍'; color: var(--jm-primary); margin-left: 1px;
-  animation: jmpulse 1s steps(2, start) infinite;
-}
 .toast {
   position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%) translateY(6px);
   background: var(--jm-toast-bg); color: var(--jm-toast-text); padding: 7px 12px; border-radius: 10px;
@@ -3998,7 +3996,6 @@ details.adv .adv-body { padding-top: 6px; }
           <div class="tabs">
             <span class="tab-ind" data-ref="tab-ind"></span>
             <button class="tab on" data-tab="solve">${L('答题', 'Solve')}</button>
-            <button class="tab" data-tab="summary">${L('总结', 'Summary')}</button>
             <button class="tab" data-tab="chat">${L('对话', 'Chat')}</button>
             <button class="tab" data-tab="cfg">${L('设置', 'Settings')}</button>
           </div>
@@ -4009,22 +4006,15 @@ details.adv .adv-body { padding-top: 6px; }
               </div>
               <div class="bar">
                 <button class="btn primary" data-ref="btn-scan">${L('扫描页面', 'Scan page')}</button>
-                <button class="btn" data-ref="btn-solve">${L('生成全部', 'Generate all')}</button>
-                <button class="btn" data-ref="btn-fill">${L('填入全部', 'Fill all')}</button>
-                <button class="btn ghost" data-ref="btn-expand" disabled>${L('展开全部', 'Expand all')}</button>
+                <button class="btn" data-ref="btn-solve" hidden>${L('生成全部', 'Generate all')}</button>
+                <button class="btn" data-ref="btn-fill" hidden>${L('填入全部', 'Fill all')}</button>
               </div>
               <div data-ref="qlist"><div class="empty">${L('点击「扫描页面」识别当前页面的题目', 'Click "Scan page" to find questions on this page')}<br/><span style="opacity:.7">${L('支持教程+题目、选择题、简答、编程、排序、填空', 'Tutorial + questions, multiple choice, short answer, coding, Parsons, fill-in-blank')}</span></div></div>
             </div>
-            <div class="pane" data-pane="summary">
+            <div class="pane" data-pane="chat">
               <div class="bar">
                 <button class="btn primary" data-ref="btn-summary">${L('总结本页', 'Summarize page')}</button>
-                <button class="btn ghost" data-ref="btn-summary-copy" disabled>${L('复制', 'Copy')}</button>
               </div>
-              <div class="sum md" data-ref="sum-box">
-                <div class="empty">${L('把这一页的教程压缩成速学笔记', 'Condense this tutorial into quick-study notes')}<br/><span style="opacity:.7">${L('一句话总结、核心要点、关键词表、易错点、自测题', 'One-line summary, key points, glossary, pitfalls, self-check')}</span></div>
-              </div>
-            </div>
-            <div class="pane" data-pane="chat">
               <div class="chat-log" data-ref="chatlog"></div>
               <div class="chat-in">
                 <textarea data-ref="chat-in" placeholder="${L('问点什么…（可自动带上当前页面内容）', 'Ask anything… (page content is attached)')}"></textarea>
@@ -4044,7 +4034,6 @@ details.adv .adv-body { padding-top: 6px; }
       this.renderSettings();
       this.renderQuestions();
       this.renderChat();
-      this.renderSummary();
       this.applyAnim();
       this.setTab(App.tab || 'solve', true);
       this.updateSub();
@@ -4196,21 +4185,10 @@ details.adv .adv-body { padding-top: 6px; }
       r['btn-solve'].addEventListener('click', () => Actions.solveAll());
       r['btn-fill'].addEventListener('click', () => Actions.fillAll());
       r['btn-auto'].addEventListener('click', () => Actions.autoFlow());
-      r['btn-expand'].addEventListener('click', () => {
-        const qs = (App.scan && App.scan.questions) || [];
-        const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
-        this.expandAll(!allOn);
-      });
       r['btn-stop'].addEventListener('click', () => Actions.stop());
 
-      // 总结
+      // 总结（结果直接落在对话区里）
       r['btn-summary'].addEventListener('click', () => Actions.summarize());
-      r['btn-summary-copy'].addEventListener('click', () => {
-        const t = App.summary && App.summary.text;
-        if (!t) return;
-        copyText(t);
-        UI.toast(L('已复制总结', 'Summary copied'));
-      });
 
       // 对话
       r['btn-send'].addEventListener('click', () => Actions.sendChat());
@@ -4307,7 +4285,6 @@ details.adv .adv-body { padding-top: 6px; }
       this.refs.tabs.forEach((t) => t.classList.toggle('on', t.getAttribute('data-tab') === name));
       this.refs.panes.forEach((p) => p.classList.toggle('on', p.getAttribute('data-pane') === name));
       this.moveTabIndicator(!!instant);
-      if (name === 'summary') this.renderSummary();
     },
 
     /** 让色块贴到当前标签下面；instant=true 时不播放滑动动画 */
@@ -4411,7 +4388,19 @@ details.adv .adv-body { padding-top: 6px; }
       scan.questions.forEach((q, i) => frag.appendChild(this.renderQuestionCard(q, i)));
       box.innerHTML = '';
       box.appendChild(frag);
-      this.syncExpandBtn();
+      this.syncSolveButtons();
+    },
+
+    /**
+     * 三个动作按进度依次出现：先扫描，扫出题目才有「生成全部」，
+     * 生成出答案才有「填入全部」。「扫描页面」一直留着，随时可以重扫。
+     */
+    syncSolveButtons() {
+      const qs = (App.scan && App.scan.questions) || [];
+      const bSolve = this.refs['btn-solve'];
+      const bFill = this.refs['btn-fill'];
+      if (bSolve) bSolve.hidden = !qs.length;
+      if (bFill) bFill.hidden = !qs.some((q) => !!q.answer);
     },
 
     /** 展开状态（按题目 id 记住，重渲染不丢） */
@@ -4428,25 +4417,6 @@ details.adv .adv-body { padding-top: 6px; }
       const idx = App.scan ? App.scan.questions.indexOf(q) : 0;
       const old = this.refs.qlist.querySelector('[data-qid="' + q.id + '"]');
       if (old) old.replaceWith(this.renderQuestionCard(q, idx));
-      this.syncExpandBtn();
-    },
-
-    expandAll(on) {
-      const qs = (App.scan && App.scan.questions) || [];
-      qs.forEach((q) => {
-        if (on) this._expanded.add(q.id);
-        else this._expanded.delete(q.id);
-      });
-      this.renderQuestions();
-    },
-
-    syncExpandBtn() {
-      const b = this.refs['btn-expand'];
-      if (!b) return;
-      const qs = (App.scan && App.scan.questions) || [];
-      const allOn = qs.length > 0 && qs.every((q) => this.isExpanded(q));
-      b.textContent = allOn ? L('收起全部', 'Collapse all') : L('展开全部', 'Expand all');
-      b.disabled = !qs.length;
     },
 
     renderQuestionCard(q, i) {
@@ -4660,61 +4630,65 @@ details.adv .adv-body { padding-top: 6px; }
       const idx = App.scan.questions.indexOf(q);
       const fresh = this.renderQuestionCard(q, idx);
       old.replaceWith(fresh);
+      this.syncSolveButtons();
     },
 
-    /* ------------------------- 总结 ------------------------- */
+    /* ------------------------- 总结（落在对话区里） ------------------------- */
 
-    summaryBox() {
-      return this.refs && this.refs['sum-box'];
+    /** 总结正文底部的复制按钮 */
+    summaryCopyBtn(text) {
+      const b = document.createElement('button');
+      b.className = 'btn ghost sum-copy';
+      b.textContent = L('复制总结', 'Copy summary');
+      b.addEventListener('click', () => {
+        copyText(text || '');
+        this.toast(L('已复制总结', 'Summary copied'));
+      });
+      return b;
     },
 
-    /** 渲染（或恢复缓存）当前页的总结 */
-    renderSummary() {
-      const box = this.summaryBox();
-      if (!box) return;
-      const s = App.summary;
-      const samePage = s && s.url === location.href;
-      if (!s || !s.text || !samePage) {
-        box.innerHTML = '';
-        const empty = document.createElement('div');
-        empty.className = 'empty';
-        empty.innerHTML =
-          L('把这一页的教程压缩成速学笔记', 'Condense this tutorial into quick-study notes') + '<br/><span style="opacity:.7">' + L('一句话总结、核心要点、关键词表、易错点、自测题', 'One-line summary, key points, glossary, pitfalls, self-check') + '</span>';
-        box.appendChild(empty);
-        if (this.refs['btn-summary-copy']) this.refs['btn-summary-copy'].disabled = true;
-        return;
-      }
-      box.innerHTML = '';
-      box.appendChild(MD.render(s.text));
-      if (this.refs['btn-summary-copy']) this.refs['btn-summary-copy'].disabled = false;
-    },
-
-    /** 总结是否正在流式接收（显示光标） */
-    setSummaryStreaming(on) {
-      const box = this.summaryBox();
-      if (box) box.classList.toggle('streaming', !!on);
+    /** 开一个「正在总结」的气泡，边生成边往里填 */
+    startSummaryBubble() {
+      const log = this.renderChat();
+      // 聊天区还是空的，先把「可以直接提问」的提示撤掉，别和总结挤在一起
+      const hint = log.querySelector('.cmsg.sys');
+      if (hint) hint.remove();
+      const d = document.createElement('div');
+      d.className = 'cmsg ai streaming sum-msg';
+      const body = document.createElement('div');
+      body.className = 'sum-body md';
+      d.appendChild(body);
+      log.appendChild(d);
+      this.scrollChatToEnd();
+      return d;
     },
 
     /** 流式更新总结正文（80ms 节流） */
-    updateSummary(text) {
-      this._sumPending = text;
-      if (this._sumTimer) return;
-      this._sumTimer = setTimeout(() => {
-        this._sumTimer = 0;
-        const box = this.summaryBox();
-        if (!box) return;
-        box.innerHTML = '';
-        box.appendChild(MD.render(this._sumPending || ''));
-        box.scrollTop = box.scrollHeight;
+    updateSummaryBubble(bubble, text) {
+      bubble._sumPending = text;
+      if (bubble._sumTimer) return;
+      bubble._sumTimer = setTimeout(() => {
+        bubble._sumTimer = 0;
+        const body = bubble.querySelector('.sum-body');
+        if (!body) return;
+        body.innerHTML = '';
+        body.appendChild(MD.render(bubble._sumPending || ''));
+        this.scrollChatToEnd();
       }, 80);
     },
 
-    setSummaryText(text) {
-      App.summary = { text, url: location.href };
-      this._sumPending = text;
-      this.renderSummary();
-      const box = this.summaryBox();
-      if (box) box.scrollTop = 0;
+    /** 总结定稿：去掉光标，底部挂上复制按钮 */
+    finishSummaryBubble(bubble, text) {
+      const body = bubble.querySelector('.sum-body');
+      if (body) {
+        body.innerHTML = '';
+        body.appendChild(MD.render(text || ''));
+      }
+      bubble.classList.remove('streaming');
+      const old = bubble.querySelector('.sum-copy');
+      if (old) old.remove();
+      bubble.appendChild(this.summaryCopyBtn(text));
+      this.scrollChatToEnd();
     },
 
     /* ------------------------- 对话 ------------------------- */
@@ -4744,7 +4718,17 @@ details.adv .adv-body { padding-top: 6px; }
       for (const m of App.chat) {
         const d = document.createElement('div');
         d.className = 'cmsg ' + (m.role === 'user' ? 'user' : m.role === 'assistant' ? 'ai' : 'sys');
-        this.fillBubble(d, m.role, m.content);
+        if (m.kind === 'summary') {
+          // 总结也是一条「回答」，正文单独放一个子元素，方便在下面挂复制按钮
+          d.classList.add('sum-msg');
+          const body = document.createElement('div');
+          body.className = 'sum-body md';
+          body.appendChild(MD.render(m.content || ''));
+          d.appendChild(body);
+          d.appendChild(this.summaryCopyBtn(m.content));
+        } else {
+          this.fillBubble(d, m.role, m.content);
+        }
         log.appendChild(d);
       }
       this.scrollChatToEnd();
@@ -4847,9 +4831,14 @@ details.adv .adv-body { padding-top: 6px; }
                 <input type="number" step="0.1" min="0" max="2" data-k="temperature" value="${cfg.temperature}" />
               </div>
               <div class="field">
-                <label>${L('最大 tokens', 'Max tokens')}</label>
+                <label>${L('答案生成最大 tokens', 'Max tokens (answers)')}</label>
                 <input type="number" step="128" min="256" max="32768" data-k="maxTokens" value="${cfg.maxTokens}" />
               </div>
+            </div>
+            <div class="field">
+              <label>${L('页面总结最大 tokens', 'Max tokens (page summary)')}</label>
+              <input type="number" step="256" min="512" max="32768" data-k="summaryTokens" value="${cfg.summaryTokens}" />
+              <div class="hint" style="margin:4px 0 0">${L('总结一整页要写 300~500 字，默认 4096；对话回复也用这个值。', 'A page summary runs 300–500 characters, so 4096 by default; chat replies use the same value.')}</div>
             </div>
             <div class="field">
               <label>${L('上下文长度（字）', 'Context length (chars)')}</label>
@@ -4954,6 +4943,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('model', String(read('model') || '').trim());
       put('temperature', Number(read('temperature')) || 0);
       put('maxTokens', Number(read('maxTokens')) || 2048);
+      put('summaryTokens', Number(read('summaryTokens')) || 4096);
       put('contextChars', Number(read('contextChars')) || 6000);
       put('language', read('language'));
       put('outputLangCustom', read('outputLangCustom'));
@@ -5420,11 +5410,13 @@ details.adv .adv-body { padding-top: 6px; }
       UI.status(L('思考中…', 'Thinking…'), 'busy');
       let acc = '';
       let firstDelta = true;
+      const budget = Number(Store.get('summaryTokens')) || 4096;
       try {
         const res = await LLM.chat({
           messages,
           stream: !!cfg.stream,
           json: false,
+          maxTokens: budget,
           onDelta: (piece) => {
             if (firstDelta) {
               firstDelta = false;
@@ -5440,7 +5432,7 @@ details.adv .adv-body { padding-top: 6px; }
           UI.updateBubble(bubble, acc);
         }
         if (!acc) {
-          const res2 = await LLM.chat({ messages, stream: false, json: false });
+          const res2 = await LLM.chat({ messages, stream: false, json: false, maxTokens: budget });
           acc = res2.text;
           UI.updateBubble(bubble, acc);
         }
@@ -5471,7 +5463,7 @@ details.adv .adv-body { padding-top: 6px; }
 
     /* ------------------------- 总结 ------------------------- */
 
-    /** 把当前页正文压缩成速学笔记 */
+    /** 把当前页正文压缩成速学笔记（结果作为一条聊天消息） */
     async summarize() {
       if (App.busy) return;
       if (!this.ensureKey()) return;
@@ -5483,10 +5475,9 @@ details.adv .adv-body { padding-top: 6px; }
 
       App.busy = true;
       UI.setStopVisible(true);
-      UI.setTab('summary');
-      UI.updateSummary('');
-      UI.setSummaryStreaming(true);
+      UI.setTab('chat');
       UI.status(L('正在总结本页…', 'Summarizing…'), 'busy');
+      const bubble = UI.startSummaryBubble();
 
       const outEn = outputLanguage() === 'en';
       const sys = outEn
@@ -5556,33 +5547,40 @@ details.adv .adv-body { padding-top: 6px; }
           messages,
           stream: true, // 总结固定走流式：边生成边显示
           json: false,
+          maxTokens: Number(Store.get('summaryTokens')) || 4096,
           onDelta: (piece) => {
             if (first) {
               first = false;
               UI.status(L('接收中…', 'Receiving…'), 'busy');
             }
             acc += piece;
-            UI.updateSummary(acc);
+            UI.updateSummaryBubble(bubble, acc);
           },
         });
         if (!acc && res && res.text) {
           acc = res.text;
-          UI.updateSummary(acc);
+          UI.updateSummaryBubble(bubble, acc);
         }
         if (!acc) throw new Error(L('模型没有返回内容', 'Model returned nothing'));
-        UI.setSummaryText(acc);
+        UI.finishSummaryBubble(bubble, acc);
+        App.chat.push({ role: 'assistant', content: acc, kind: 'summary' });
         UI.status(L('总结完成', 'Summary ready'));
         UI.toast(L('总结完成', 'Summary ready'));
       } catch (e) {
         if (e && e.name === 'AbortError') {
-          if (acc) UI.setSummaryText(acc);
+          if (acc) {
+            UI.finishSummaryBubble(bubble, acc);
+            App.chat.push({ role: 'assistant', content: acc, kind: 'summary' });
+          } else {
+            bubble.remove();
+          }
           UI.status(L('已停止', 'Stopped'));
         } else {
+          bubble.remove();
           UI.status(L('总结失败：', 'Summary failed: ') + e.message, 'err');
           UI.toast(L('总结失败：', 'Summary failed: ') + e.message, 3600);
         }
       } finally {
-        UI.setSummaryStreaming(false);
         App.busy = false;
         UI.setStopVisible(false);
         UI.updateUsage();
@@ -5664,11 +5662,9 @@ details.adv .adv-body { padding-top: 6px; }
         App.scan = null;
         PageModel.scope = null;
         App.chat = [];
-        App.summary = null;
         if (UI.refs) {
           UI.renderQuestions();
           UI.renderChat();
-          UI.renderSummary();
         }
         if (Store.get('autoRun')) {
           await waitForContent(12000);
@@ -5706,7 +5702,7 @@ details.adv .adv-body { padding-top: 6px; }
 
       // 调试入口
       try {
-        W.__JMAI__ = { UI, Actions, PageModel, Solvers, HumanTyping, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
+        W.__JMAI__ = { App, UI, Actions, PageModel, Solvers, HumanTyping, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
       } catch (e) {
         /* ignore */
       }
