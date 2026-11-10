@@ -9,6 +9,7 @@
     stopMark: 0, // 每按一次「停止」加一，长流程靠它判断用户是不是中途叫停了
     chat: [],
     mounted: false,
+    testGate: null, // 正在等用户拍板（Test 没通过，要不要让 AI 重写）
   };
 
   function rgba(color, alpha) {
@@ -215,6 +216,29 @@
 .chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 7px; }
 .btn.chip { padding: 3px 9px; font-size: 11.5px; border-radius: 999px; font-family: "Roboto Mono", ui-monospace, monospace; }
 .q-ft { display: flex; gap: 5px; align-items: center; }
+/* Test 二次验证：结果 + 可展开的错误详情 + 让用户拍板的按钮 */
+.test-box {
+  border: 1px solid var(--jm-border); border-radius: 10px; padding: 7px 8px; margin-bottom: 8px;
+  background: var(--jm-chip);
+}
+.test-box.bad { border-color: rgba(220,38,38,.45); }
+.test-box.ok { border-color: rgba(22,163,74,.4); }
+.test-head { font-size: 11.5px; font-weight: 600; color: var(--jm-text); margin-bottom: 5px; }
+.test-box.bad .test-head { color: var(--jm-error); }
+.test-box.ok .test-head { color: var(--jm-success); }
+.test-details { font-size: 11.5px; color: var(--jm-text); }
+.test-details > summary { cursor: pointer; color: var(--jm-primary); user-select: none; }
+.test-fail { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--jm-border); }
+.tf-name { font-family: "Roboto Mono", ui-monospace, monospace; font-weight: 600; color: var(--jm-text); word-break: break-all; }
+.tf-desc { color: var(--jm-muted); margin-top: 2px; }
+.tf-row { margin-top: 4px; }
+.tf-label { color: var(--jm-muted); }
+.tf-val {
+  margin: 2px 0 0; white-space: pre-wrap; word-break: break-word; background: var(--jm-code-bg);
+  border-radius: 6px; padding: 5px 7px; font-family: "Roboto Mono", ui-monospace, monospace;
+  font-size: 11px; color: var(--jm-text); max-height: 170px; overflow: auto;
+}
+.test-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .spacer { flex: 1 1 auto; }
 .msg { font-size: 11px; color: var(--jm-muted); }
 .msg.ok { color: var(--jm-success); }
@@ -1147,6 +1171,12 @@ details.adv .adv-body { padding-top: 6px; }
       } else if (q.submitStatus === 'error') {
         st.className = 'msg err';
         st.textContent = L('提交失败', 'submit failed');
+      } else if (q.testResult && q.testResult.state === 'failed' && q.testResult.waiting) {
+        st.className = 'msg err';
+        st.textContent = L('Test 没通过·等你确认', 'tests failed — your call');
+      } else if (q.testResult && q.testResult.state === 'passed') {
+        st.className = 'msg ok';
+        st.textContent = L('Test 通过', 'tests passed');
       } else if (q.status === 'running') st.innerHTML = '<span class="spin"></span>';
       else if (q.status === 'done') {
         st.className = 'msg ok';
@@ -1224,6 +1254,101 @@ details.adv .adv-body { padding-top: 6px; }
           ex.textContent = expanded ? q.answer.explanation : truncate(q.answer.explanation, 220);
           card.appendChild(ex);
         }
+      }
+
+      // Test 二次验证的结果：错误详情可以展开，下面是让用户拍板的按钮
+      if (q.testResult) {
+        const tr = q.testResult;
+        const sum = tr.summary || {};
+        const fails = tr.failures || [];
+        const box = document.createElement('div');
+        box.className = 'test-box' + (tr.state === 'passed' ? ' ok' : tr.state === 'failed' ? ' bad' : '');
+
+        const head = document.createElement('div');
+        head.className = 'test-head';
+        if (tr.state === 'passed') {
+          head.textContent = L(`Test 通过（${sum.tests || 0} 个用例）`, `Tests passed (${sum.tests || 0} case(s))`);
+        } else if (tr.state === 'failed') {
+          head.textContent = L(
+            `Test 没通过：${sum.failed || 0} 个用例失败${tr.attempt > 1 ? '（第二次尝试）' : ''}`,
+            `Tests failed: ${sum.failed || 0} case(s)${tr.attempt > 1 ? ' (attempt #2)' : ''}`
+          );
+        } else if (tr.state === 'none') {
+          head.textContent = L('这一题没有可用的 Test 验证', 'No tests available for this one');
+        } else {
+          head.textContent = L('Test 验证没跑起来', 'Could not run the tests');
+        }
+        box.appendChild(head);
+
+        // 失败详情：默认收起，点开才看
+        if (fails.length) {
+          const det = document.createElement('details');
+          det.className = 'test-details';
+          const detSum = document.createElement('summary');
+          detSum.textContent = L(`展开错误详情（${fails.length} 个用例）`, `Show error details (${fails.length} case(s))`);
+          det.appendChild(detSum);
+          fails.forEach((f) => {
+            const one = document.createElement('div');
+            one.className = 'test-fail';
+            const nm = document.createElement('div');
+            nm.className = 'tf-name';
+            nm.textContent = f.name || L('（未命名用例）', '(unnamed case)');
+            one.appendChild(nm);
+            if (f.description) {
+              const d = document.createElement('div');
+              d.className = 'tf-desc';
+              d.textContent = f.description;
+              one.appendChild(d);
+            }
+            const kv = (label, val) => {
+              if (!val) return;
+              const row = document.createElement('div');
+              row.className = 'tf-row';
+              const l = document.createElement('span');
+              l.className = 'tf-label';
+              l.textContent = label;
+              const v = document.createElement('pre');
+              v.className = 'tf-val';
+              v.textContent = val;
+              row.append(l, v);
+              one.appendChild(row);
+            };
+            kv(L('期望输出', 'Expected'), f.expected);
+            kv(L('实际输出', 'Actual'), f.actual);
+            kv(L('备注', 'Notes'), f.notes);
+            det.appendChild(one);
+          });
+          box.appendChild(det);
+        }
+
+        // 等用户拍板：答错就改不了了，这一步必须人来定
+        if (tr.waiting) {
+          const row = document.createElement('div');
+          row.className = 'test-actions';
+          if (tr.canRetry) {
+            const bRetry = document.createElement('button');
+            bRetry.className = 'btn primary';
+            bRetry.textContent = L('让 AI 重写（第二次尝试）', 'Let AI rewrite (attempt #2)');
+            bRetry.addEventListener('click', () => Actions.resolveTestDecision('retry'));
+            row.appendChild(bRetry);
+          }
+          const bSubmit = document.createElement('button');
+          bSubmit.className = 'btn';
+          bSubmit.textContent = tr.canRetry ? L('不管了，直接提交', 'Submit anyway') : L('直接提交', 'Submit');
+          bSubmit.addEventListener('click', () => Actions.resolveTestDecision('submit'));
+          row.appendChild(bSubmit);
+          const bSkip = document.createElement('button');
+          bSkip.className = 'btn ghost';
+          bSkip.textContent = L('先不提交', "Don't submit");
+          bSkip.addEventListener('click', () => Actions.resolveTestDecision('skip'));
+          row.appendChild(bSkip);
+          box.appendChild(row);
+          const hint = document.createElement('div');
+          hint.className = 'hint';
+          hint.textContent = L('答错就改不了了，所以这一步等你拍板。', 'Once submitted you cannot change it — so this step waits for you.');
+          box.appendChild(hint);
+        }
+        card.appendChild(box);
       }
 
       if (q.error) {
@@ -1502,6 +1627,8 @@ details.adv .adv-body { padding-top: 6px; }
           <input type="number" step="1" min="3" max="10" data-k="codeWaitSec" value="${Number(cfg.codeWaitSec) || 5}" />
           <div class="hint" style="margin:4px 0 0">${L('代码写进编辑器后，等这么久再点提交（3~10 秒）。用于防止程序还没同步就提交，导致站点弹提示框。', 'After the code is written into the editor, wait this long before submitting (3–10 s). It keeps the site from popping up a warning because the program had not synced yet.')}</div>
         </div>
+        <label class="check"><input type="checkbox" data-k="testVerify" ${cfg.testVerify !== false ? 'checked' : ''}/> ${L('代码题用站点的 Test 二次验证', 'Verify code with the site’s Tests')}</label>
+        <div class="hint" style="margin:-2px 0 8px">${L('写完代码先点一下 IDE 里橙色的「Tests」按钮：全过就照常提交；有错就把错误详情摊给你看，等你点「让 AI 重写」还是「直接提交」。关掉能省下跑测试的时间。', 'After the code is written, the orange “Tests” button in the IDE is clicked for you: if everything passes it submits as usual; if something fails, the error details are shown and you choose “let AI rewrite” or “submit anyway”. Turning it off saves the time spent running tests.')}</div>
 
         <details class="adv">
           <summary>${L('高级设置', 'Advanced')}</summary>
@@ -1645,6 +1772,8 @@ details.adv .adv-body { padding-top: 6px; }
       put('maxTokens', Number(read('maxTokens')) || 2048);
       put('summaryTokens', Number(read('summaryTokens')) || 4096);
       put('codeWaitSec', Math.max(3, Math.min(10, Number(read('codeWaitSec')) || 5)));
+      const testVerify = read('testVerify');
+      if (testVerify !== undefined) put('testVerify', !!testVerify);
       put('contextChars', Number(read('contextChars')) || 6000);
       put('language', read('language'));
       put('outputLangCustom', read('outputLangCustom'));

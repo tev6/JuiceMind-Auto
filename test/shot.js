@@ -205,6 +205,41 @@ async function installMock(page) {
   await expandFirst(); // 收回去
   await new Promise((r) => setTimeout(r, 200));
 
+  // Test 二次验证：失败详情可展开 + 让用户拍板
+  await page.evaluate(() => {
+    const J = window.__JMAI__;
+    const q = J.PageModel.questions.find((x) => x.type === 'code');
+    if (!q) return;
+    q.testResult = {
+      state: 'failed',
+      waiting: true,
+      canRetry: true,
+      attempt: 1,
+      summary: { suites: 1, tests: 3, passed: 2, failed: 1, timeout: 0 },
+      failures: [
+        {
+          name: 'test_complete_countdown_sequence',
+          description: 'Complete countdown sequence',
+          expected: "contains '10\n9\n8\n7\n6\n5\n4\n3\n2\n1\nIgnition!'",
+          actual: '11\n10\n9\n8\n7\n6\n5\n4\n3\n2\nIgnition!',
+          notes: 'Expected complete countdown sequence from 10 to 1. Check that the first loop counts from 10 down to 1.',
+        },
+      ],
+    };
+    J.UI.refreshCard(q);
+    J.UI.setTab('solve');
+    const host = document.getElementById('jm-ai-host');
+    const pane = host.shadowRoot.querySelector('.pane[data-pane="solve"]');
+    const box = host.shadowRoot.querySelector('.test-box');
+    if (pane && box) {
+      const pr = pane.getBoundingClientRect();
+      const br = box.getBoundingClientRect();
+      pane.scrollTop += br.top - pr.top - 12;
+    }
+  });
+  await new Promise((r) => setTimeout(r, 350));
+  await page.screenshot({ path: path.join(OUT, '12-test-failed.png') });
+
   // 模型名被服务端拒绝时的「改用」提示
   await page.evaluate(() => {
     const J = window.__JMAI__;

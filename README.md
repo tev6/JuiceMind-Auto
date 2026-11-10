@@ -9,7 +9,7 @@
 A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it finds the questions on the page, calls a large language model API to generate answers, then fills them back in and submits everything automatically.
 
 [![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.14.2-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![Version](https://img.shields.io/badge/version-1.14.3-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![The panel: questions scanned and answers generated](docs/img/panel-en.png)
@@ -21,6 +21,7 @@ A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it f
 - [Updating](#updating)
 - [Configure](#configure)
 - [Usage](#usage)
+- [Test verification for code questions](#test-verification-for-code-questions)
 - [FAQ](#faq)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -32,6 +33,7 @@ A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it f
 | Feature | What it does |
 | --- | --- |
 | **Complete the whole page** | detect → generate → fill in → submit, the same flow for every question |
+| **Test verification for code** | before submitting a coding exercise, the site IDE's orange **Tests** button is clicked for you — if a case fails, the expected/actual output is shown and *you* decide whether the AI rewrites it |
 | **Batch answers** | one request answers the whole page — 70% less input token on a 5-question page |
 | **Token savings** | context trimmed per question, parsing off by default, max tokens follow the question type |
 | **Human-like typing** | code questions are typed into the editor character by character, with a random pace and pauses — not one big replacement |
@@ -110,6 +112,31 @@ Every question's outcome is reported back, so you always know whether the site a
 
 Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse / expand the panel · `Alt + Enter` generate all · `Alt + Shift + S` scan the page.
 
+## Test verification for code questions
+
+A coding exercise is the one kind of answer you cannot fix after submitting — so before the script submits one, it
+clicks the orange **Tests** button in the site IDE and reads the result:
+
+- **Everything passes** → it submits as usual.
+- **A case fails** → the failing cases are shown on the card: the case name, the description, the **expected
+  output**, the **actual output** and the teacher's note. The details are collapsed by default — click
+  *Show error details* to read them.
+
+![A coding question whose Test run failed, with the error details and the three choices](docs/img/test-verify.png)
+
+Nothing is retried behind your back. The card offers three choices:
+
+| Choice | What happens |
+| --- | --- |
+| **Let AI rewrite (attempt #2)** | the expected/actual difference is handed to the model, which rewrites the program — the prompt says plainly that this is the *second retry*, so it amends the previous version instead of starting over. The tests then run once more |
+| **Submit anyway** | submits the current code as it is |
+| **Don't submit** | leaves the question unanswered, and the script moves on |
+
+If the rewrite still fails the tests, you are asked again — there is no third automatic attempt.
+
+Turn it off in **Settings → "Verify code with the site's Tests"** if you would rather save the few seconds the
+test run takes.
+
 ## FAQ
 
 **Tampermonkey asks to allow a cross-origin resource** — click `Always allow domain` for that one API domain, or `Always allow` to stop seeing it. The script declares its cross-origin permission, so this only shows up on an old copy of the script or a strict Tampermonkey setting. See "Configure".
@@ -166,6 +193,7 @@ Pull requests and issues are welcome — to add support for other courses, repor
 
 The full history lives in [CHANGELOG.en.md](CHANGELOG.en.md).
 
+- **1.14.3** — **code questions are verified with the site's own Tests before they are submitted**: the orange **Tests** button in the IDE is clicked for you, and if a case fails the expected/actual output is laid out on the card — where **you** pick "let AI rewrite (attempt #2)", "submit anyway" or "don't submit". Nothing is retried behind your back, and the rewrite prompt says plainly that this is the second try. New setting "Verify code with the site's Tests" turns the whole step off when you want to save time
 - **1.14.2** — **fixes code questions losing the whole program**: for an exercise like `for i in _____(7):`, the model answered the blank only and the editor was overwritten with just `range`. The system prompt now insists on the complete program, and as a safety net a fragment like that is spliced back into the original code. New setting "Wait after writing code (seconds)" (3–10 s) pauses before submitting, so the site does not pop up a warning while the program is still syncing
 - **1.14.1** — **fixes "Complete this page" stopping after the first question**: the questions after it had **not** been submitted at all, but were reported as *already submitted — skipped*. The check for "has this been submitted?" looked too wide (it picked up other questions' status words) and read "the button is disabled" as "already submitted" (the site disables it whenever the answer is empty). Now it works its way through every question on the page
 - **1.14.0** — **a tidier panel**: *Summary* and *Chat* are now a single **Chat** tab — the quick-study notes show up as a reply there, with a copy button underneath, and you can keep asking about them. *Scan page*, *Generate all* and *Fill all* now appear one after another instead of all at once. Answers and page summaries also get separate token budgets

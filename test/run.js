@@ -814,6 +814,140 @@ const doc = window.document;
   const waited = Date.now() - tWait1;
   ok('代码题会等到设置的秒数', waited >= 4900, waited);
 
+  console.log('\n【30】代码题：用站点的 Test 做二次验证');
+  // 30.1 设置开关
+  ok('默认开启 Test 验证', J.Store.get('testVerify') === true, J.Store.get('testVerify'));
+  J.UI.renderSettings();
+  const tvBox = host.shadowRoot.querySelector('[data-k="testVerify"]');
+  ok('设置页有 Test 验证开关', !!tvBox);
+  tvBox.checked = false;
+  J.UI.saveSettings();
+  ok('可以关掉 Test 验证', J.Store.get('testVerify') === false, J.Store.get('testVerify'));
+  tvBox.checked = true;
+  J.UI.saveSettings();
+  ok('可以再打开 Test 验证', J.Store.get('testVerify') === true, J.Store.get('testVerify'));
+
+  // 30.2 认按钮、读数字
+  ok('页面没有 Tests 按钮时不可用', J.Testers.available() === false);
+  const fake = installFakeTests(window);
+  ok('有 Tests 按钮时可用', J.Testers.available() === true);
+  fake.cfg.failed = 1;
+  fake.cfg.passed = 2;
+  fake.cfg.total = 3;
+  const sumFake = J.Testers.readSummary(fake.buildPanel());
+  ok('读得出用例总数', sumFake.tests === 3, sumFake);
+  ok('读得出失败数', sumFake.failed === 1, sumFake);
+  ok('读得出通过数', sumFake.passed === 2, sumFake);
+
+  // 30.3 跑一遍：全过 / 有失败
+  fake.cfg.failed = 0;
+  fake.cfg.passed = 3;
+  const passRes = await J.Testers.verify();
+  ok('全过时结果是 passed', passRes.state === 'passed', passRes);
+  ok('验证完把面板关掉了', !window.document.querySelector('.la0T6q_root'));
+
+  fake.cfg.failed = 1;
+  fake.cfg.passed = 2;
+  const failRes = await J.Testers.verify();
+  ok('有失败时结果是 failed', failRes.state === 'failed', failRes);
+  ok('读到了失败用例', failRes.failures && failRes.failures.length === 1, failRes.failures);
+  const f0 = (failRes.failures || [])[0] || {};
+  ok('失败用例带名字', f0.name === 'test_complete_countdown_sequence', f0.name);
+  ok('失败用例带期望输出', /contains/.test(f0.expected || ''), f0.expected);
+  ok('失败用例带实际输出', /11/.test(f0.actual || ''), f0.actual);
+  ok('失败用例带备注', /first loop/.test(f0.notes || ''), f0.notes);
+  ok('验证完把面板关掉了', !window.document.querySelector('.la0T6q_root'));
+
+  // 30.4 第二次重试的提示词
+  const failBlock = J.Solvers.testFailBlock([
+    { name: 'test_x', description: 'd', expected: 'E', actual: 'A', notes: 'N' },
+  ]);
+  ok('失败信息里写了期望输出', /期望输出/.test(failBlock) && /E/.test(failBlock), failBlock);
+  ok('失败信息里写了实际输出', /实际输出/.test(failBlock) && /A/.test(failBlock));
+  ok('失败信息里写了备注', /备注/.test(failBlock) && /N/.test(failBlock));
+
+  J.Store.set({ apiKey: 'sk-test', model: 'm', baseUrl: 'https://api.openai.com/v1', stream: false, jsonMode: true });
+  let retryBody = null;
+  window.fetch = async (u, init) => {
+    retryBody = JSON.parse((init && init.body) || '{}');
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: JSON.stringify({ type: 'code', answers: ['print(1)'] }) } }], usage: { total_tokens: 8 } }),
+      { status: 200 }
+    );
+  };
+  await J.Solvers.retryWithTests(
+    byType.code,
+    scan,
+    0,
+    [{ name: 'test_x', expected: 'E', actual: 'A', notes: 'N' }]
+  );
+  const retrySys = (retryBody.messages || [])[0] ? retryBody.messages[0].content : '';
+  const retryUser = (retryBody.messages || [])[1] ? retryBody.messages[1].content : '';
+  ok('重试的 system 提示写明是第二次重试', /第二次重试/.test(retrySys) && /retry #2/.test(retrySys), retrySys.slice(-200));
+  ok('重试的 user 提示写明是第二次重试', /第二次重试/.test(retryUser), retryUser.slice(-200));
+  ok('重试提示里带了测试失败信息', /test_x/.test(retryUser) && /期望输出/.test(retryUser), retryUser.slice(-300));
+
+  // 30.5 卡片上的错误详情与确认按钮
+  const scan30 = await J.Actions.scan(false);
+  const qCard = scan30.questions.find((q) => q.type === 'code');
+  ok('找到代码题', !!qCard);
+  qCard.testResult = {
+    state: 'failed',
+    waiting: true,
+    canRetry: true,
+    attempt: 1,
+    summary: { tests: 3, passed: 2, failed: 1 },
+    failures: [
+      {
+        name: 'test_complete_countdown_sequence',
+        description: 'Complete countdown sequence',
+        expected: "contains '10\n9\n8'",
+        actual: '11\n10\n9',
+        notes: 'Check the first loop.',
+      },
+    ],
+  };
+  J.UI.refreshCard(qCard);
+  const cardEl = host.shadowRoot.querySelector('[data-qid="' + qCard.id + '"]');
+  ok('卡片上有 Test 结果块', !!(cardEl && cardEl.querySelector('.test-box')));
+  const detEl = cardEl.querySelector('.test-details');
+  ok('错误详情是可展开的', !!detEl && detEl.tagName === 'DETAILS');
+  ok('展开后能看到期望输出', /contains/.test(detEl.textContent), detEl.textContent.slice(0, 120));
+  const actBtns = Array.from(cardEl.querySelectorAll('.test-actions button')).map((b) => b.textContent);
+  ok('有「让 AI 重写」按钮', actBtns.some((t) => /重写|rewrite/i.test(t)), actBtns);
+  ok('有「直接提交」按钮', actBtns.some((t) => /直接提交|Submit/.test(t)), actBtns);
+  ok('有「先不提交」按钮', actBtns.some((t) => /先不提交|submit/i.test(t)), actBtns);
+  let picked = null;
+  J.App.testGate = { qid: qCard.id, resolve: (v) => { picked = v; } };
+  Array.from(cardEl.querySelectorAll('.test-actions button'))
+    .find((b) => /重写|rewrite/i.test(b.textContent))
+    .click();
+  ok('点按钮能把选择交回去', picked === 'retry', picked);
+  ok('没有等待对象时不报错', J.Actions.resolveTestDecision('retry') === false);
+
+  // 30.6 全流程：Test 失败 → 等用户拍板 → 不自动重试
+  J.Store.set({ testVerify: true, codeWaitSec: 3, apiKey: 'sk-test', model: 'm', baseUrl: 'https://api.openai.com/v1', stream: false, jsonMode: true });
+  fake.cfg.failed = 1;
+  fake.cfg.passed = 2;
+  fake.cfg.total = 3;
+  let llmCalls = 0;
+  window.fetch = async (u, init) => {
+    llmCalls++;
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: JSON.stringify({ type: 'code', answers: ['print("fixed")'] }) } }], usage: { total_tokens: 5 } }),
+      { status: 200 }
+    );
+  };
+  qCard.answer = { type: 'code', answers: ['print("first")'] };
+  const flowPromise = J.Actions.applyWithVerify(qCard, scan, 0);
+  await new Promise((r) => setTimeout(r, 7000));
+  ok('Test 失败后停在等用户确认', J.App.testGate !== null, J.App.testGate);
+  ok('不会自动重试（一次请求都没多发）', llmCalls === 0, llmCalls);
+  J.Actions.resolveTestDecision('skip');
+  const flowRes = await flowPromise;
+  ok('用户选「先不提交」就不提交', flowRes && flowRes.skipSubmit === true, flowRes);
+  ok('全程没有自动重试', llmCalls === 0, llmCalls);
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {
@@ -1023,5 +1157,120 @@ async function runAutoFlowCase(opts) {
     }),
     checked: Array.from(w.document.querySelectorAll('input[type=radio]:checked')).map((r) => r.getAttribute('aria-label')),
   };
+}
+
+/**
+ * 在页面里装一套「站点的 Tests 面板」假 DOM。
+ * 结构照抄 2026-11-10 真页实测（Countdown Fix 练习）：
+ *   <a aria-label="Run tests"> → .la0T6q_root 总览面板 → .la0T6q_testCardButton「View Results」
+ *   → .agmXLG_testResultsContainer 结果弹窗 → .agmXLG_expandIcon 展开 → .agmXLG_detailRow 明细
+ */
+function installFakeTests(w) {
+  const d = w.document;
+  const cfg = { failed: 1, passed: 2, total: 3 };
+  const box = d.createElement('div');
+  box.id = 'fake-ide';
+  d.body.appendChild(box);
+
+  const runBtn = d.createElement('a');
+  runBtn.setAttribute('aria-label', 'Run tests');
+  runBtn.setAttribute('role', 'button');
+  box.appendChild(runBtn);
+
+  const buildPanel = () => {
+    const panel = d.createElement('div');
+    panel.className = 'la0T6q_root';
+    panel.innerHTML =
+      '<div class="la0T6q_title">Tests</div>' +
+      '<div class="la0T6q_testSummary"><div class="la0T6q_testSummaryText">1 Test Total</div>' +
+      '<div class="la0T6q_testSummaryBadges">' +
+      '<div class="la0T6q_testSummaryBadge la0T6q_passed">' + cfg.passed + ' Passed</div>' +
+      '<div class="la0T6q_testSummaryBadge la0T6q_failed">' + cfg.failed + ' Failed</div>' +
+      '<div class="la0T6q_testSummaryBadge la0T6q_timeout">0 Timeout</div>' +
+      '</div></div>' +
+      '<div class="la0T6q_testItemContainer"><div class="la0T6q_testCard la0T6q_failedCard">' +
+      '<div class="la0T6q_testCardType">Unit Test</div>' +
+      '<div class="la0T6q_testCardHeader"><div class="la0T6q_testCardMeta"><div class="la0T6q_testCardTitleRow">' +
+      '<div class="la0T6q_testCardTitle">Loop Counter Fix Tests</div>' +
+      '<div class="la0T6q_testCardBadge la0T6q_failed">FAILED</div>' +
+      '</div></div></div>' +
+      '<div class="la0T6q_testCardDetails"><div class="la0T6q_testCardStats">' +
+      '<div class="la0T6q_testCardTotalTests">' + cfg.total + ' Tests Total</div>' +
+      '<div class="la0T6q_testCardSubStats">' +
+      '<div class="la0T6q_testCardBadge la0T6q_passed">' + cfg.passed + ' Passed</div>' +
+      '<div class="la0T6q_testCardBadge la0T6q_failed">' + cfg.failed + ' Failed</div>' +
+      '</div></div><button class="la0T6q_testCardButton">View Results</button>' +
+      '</div></div></div>';
+    return panel;
+  };
+
+  runBtn.addEventListener('click', () => {
+    const oldPanel = box.querySelector('.la0T6q_root');
+    if (oldPanel) oldPanel.remove();
+    const oldX = box.querySelector('.fake-x');
+    if (oldX) oldX.remove();
+    const panel = buildPanel();
+    box.appendChild(panel);
+
+    // 面板右上角那个白色圆钮（真页是 <svg data-testid="CloseIcon">）
+    const x = d.createElement('div');
+    x.className = 'fake-x';
+    x.innerHTML = '<svg data-testid="CloseIcon"></svg>';
+    x.addEventListener('click', () => {
+      panel.remove();
+      x.remove();
+    });
+    box.appendChild(x);
+
+    // View Results → 结果弹窗
+    panel.querySelector('.la0T6q_testCardButton').addEventListener('click', () => {
+      const oldModal = box.querySelector('.agmXLG_testCreationModal');
+      if (oldModal) oldModal.remove();
+      const modal = d.createElement('div');
+      modal.className = 'agmXLG_testCreationModal';
+      modal.innerHTML = '<a class="agmXLG_closeButton"><svg data-testid="CloseIcon"></svg></a>';
+      const res = d.createElement('div');
+      res.className = 'agmXLG_testResultsContainer';
+
+      const bad = d.createElement('div');
+      bad.className = 'agmXLG_testItem';
+      bad.innerHTML =
+        '<div class="agmXLG_testHeader agmXLG_failed">' +
+        '<div class="agmXLG_testName">test_complete_countdown_sequence<span class="agmXLG_failedBadge">FAILED</span></div>' +
+        '<div class="agmXLG_expandIcon"><svg data-testid="ChevronRightIcon"></svg></div>' +
+        '</div>';
+      bad.querySelector('.agmXLG_expandIcon').addEventListener('click', () => {
+        if (bad.querySelector('.agmXLG_testDetails')) return;
+        const det = d.createElement('div');
+        det.className = 'agmXLG_testDetails';
+        det.innerHTML =
+          '<div class="agmXLG_detailRow"><div class="agmXLG_detailLabel">Name:</div><div class="agmXLG_detailValue">test_complete_countdown_sequence</div></div>' +
+          '<div class="agmXLG_detailRow"><div class="agmXLG_detailLabel">Description:</div><div class="agmXLG_detailValue">Complete countdown sequence</div></div>' +
+          '<div class="agmXLG_detailRow"><div class="agmXLG_detailLabel">Expected:</div><div class="agmXLG_detailValue">contains \'10\n9\n8\'</div></div>' +
+          '<div class="agmXLG_detailRow"><div class="agmXLG_detailLabel">Actual:</div><div class="agmXLG_detailValue">11\n10\n9</div></div>' +
+          '<div class="agmXLG_detailRow"><div class="agmXLG_detailLabel">Notes:</div><div class="agmXLG_detailValue">Check the first loop counts from 10 down to 1.</div></div>';
+        bad.appendChild(det);
+      });
+      res.appendChild(bad);
+
+      // 通过的那两条：不该被当成失败
+      ['test_ignition_message', 'test_launch_success_message'].forEach((n) => {
+        const good = d.createElement('div');
+        good.className = 'agmXLG_testItem';
+        good.innerHTML =
+          '<div class="agmXLG_testHeader agmXLG_passed">' +
+          '<div class="agmXLG_testName">' + n + '<span class="agmXLG_passedBadge">PASSED</span></div>' +
+          '<div class="agmXLG_expandIcon"><svg data-testid="ChevronRightIcon"></svg></div>' +
+          '</div>';
+        res.appendChild(good);
+      });
+
+      modal.appendChild(res);
+      box.appendChild(modal);
+      modal.querySelector('.agmXLG_closeButton').addEventListener('click', () => modal.remove());
+    });
+  });
+
+  return { box: box, cfg: cfg, buildPanel: buildPanel };
 }
 

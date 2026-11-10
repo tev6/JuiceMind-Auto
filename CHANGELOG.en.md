@@ -2,6 +2,28 @@
 
 The full version history. The README only keeps the most recent versions; new ones move here.
 
+## 1.14.3
+
+- **Code questions get a second verification: the site IDE's orange "Tests" button runs the unit tests first.**
+  Code questions used to go "generate → submit", so a wrong program got submitted — and **a submitted answer
+  cannot be changed**. Now the script clicks the site's Tests button after writing the code:
+  - everything passes → it submits as usual;
+  - something fails → the **details of every failing case** are laid out on the card (case name, description,
+    **expected output**, **actual output**, notes) and the script **does not retry on its own** — it waits for you.
+- **The error details are collapsible** (closed by default; click "Show error details" to open), with three choices
+  right on the card:
+  - **Let AI rewrite (attempt #2)** — the expected/actual difference is fed to the model, and the rewrite prompt says
+    plainly that this is the **second retry (retry #2)**, so the model amends the previous version instead of
+    starting over;
+  - **Submit anyway**;
+  - **Don't submit**.
+  After the rewrite the tests run once more; if they still fail you are asked again — no automatic retrying.
+- **New setting "Verify code with the site's Tests"** (on by default).
+  Turn it off to skip the test run and submit straight away — handy when you want to save time.
+- Measured on a real page (2026-11-10, the Countdown Fix exercise): click Tests → summary in about 3–4 s →
+  View Results → click the failing case → expand it for expected/actual/notes; the whole verification takes
+  about 6–7 s.
+
 ## 1.14.2
 
 - **Fixes code questions losing the whole program.**

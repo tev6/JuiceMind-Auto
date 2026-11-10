@@ -50,8 +50,10 @@
         UI.status(L('答案已生成', 'Answer ready'));
         UI.toast(L('已生成：', 'Done: ') + truncate(UI.answerPreview(q).replace(/\n/g, ' '), 60));
         if (Store.get('autoSubmit')) {
-          const r = await Appliers.apply(q);
-          if (r.ok) await Appliers.submit(q);
+          const scan = App.scan || { context: PageModel.contextText(), title: PageModel.title(), kind: PageModel.kind };
+          const idx = App.scan ? App.scan.questions.indexOf(q) : 0;
+          const r = await this.applyWithVerify(q, scan, idx);
+          if (r.ok && !r.skipSubmit) await Appliers.submit(q);
         }
       } catch (e) {
         q.status = 'error';
@@ -72,6 +74,8 @@
       const wasBusy = App.busy;
       HumanTyping.cancel();
       LLM.abort();
+      // 正在等用户拍板的话，别让人干等：按「停下」处理
+      this.resolveTestDecision('stop');
       App.busy = false;
       App.stopMark++;
       this.setBusy(false);
@@ -205,15 +209,146 @@
       }
     },
 
+    /* ------------------------- Test 二次验证 ------------------------- */
+
+    /**
+     * 代码题写完之后，跑一遍站点 IDE 里的 Test（橙色按钮）做二次验证。
+     *
+     * 关掉开关 / 不是代码题 / 这一页没有配测试 → 直接放行，不耽误时间。
+     */
+    async verifyCode(q) {
+      if (!Store.get('testVerify')) return { state: 'off' };
+      if (!q || q.type !== 'code') return { state: 'off' };
+      // IDE 是异步挂载的，等它一会儿再决定能不能验证
+      if (!(await Testers.waitAvailable(5000))) return { state: 'none' };
+      UI.status(L('正在跑站点的 Test 验证…', 'Running the site’s Tests…'), 'busy');
+      const v = await Testers.verify();
+      if (v.state === 'passed') {
+        UI.status(L('Test 通过', 'Tests passed'));
+      } else if (v.state === 'failed') {
+        UI.status(L('Test 没通过', 'Tests failed'), 'err');
+      }
+      return v;
+    },
+
+    /**
+     * 把测试失败摊给用户看，**等用户拍板**再继续。
+     * 不自动重试：答错了就交出去改不回来，所以这一步必须由人来定。
+     *
+     * @returns {Promise<'retry'|'submit'|'skip'|'stop'>}
+     */
+    askTestDecision(q, v, opts) {
+      const final = !!(opts && opts.final);
+      const prev = q.testResult || {};
+      q.testResult = {
+        state: 'failed',
+        summary: v.summary || {},
+        failures: v.failures || [],
+        attempt: final ? 2 : (prev.attempt || 1),
+        waiting: true,
+        canRetry: !final,
+      };
+      UI.setTab('solve');
+      try {
+        UI.setCollapsed(false);
+      } catch (e) {
+        /* ignore */
+      }
+      UI.refreshCard(q);
+      UI.status(L('Test 没通过：等你确认怎么处理', 'Tests failed — waiting for your call'), 'err');
+      UI.toast(
+        L('Test 没通过：展开卡片上的错误详情，然后选「让 AI 重写」或「直接提交」', 'Tests failed: open the error details on the card, then retry or submit'),
+        7000
+      );
+      return new Promise((resolve) => {
+        App.testGate = { qid: q.id, resolve: resolve, final: final };
+      });
+    },
+
+    /** 用户在卡片上点了按钮：把选择交回给等着的那一步 */
+    resolveTestDecision(choice) {
+      const gate = App.testGate;
+      if (!gate) return false;
+      App.testGate = null;
+      try {
+        gate.resolve(choice);
+      } catch (e) {
+        /* ignore */
+      }
+      return true;
+    },
+
+    /**
+     * 填入代码 → 跑 Test 二次验证 → 失败时等用户确认 → 重写一次 → 再验一次。
+     *
+     * @returns {{ok:boolean, msg?:string, skipSubmit?:boolean, verify?:object}}
+     */
+    async applyWithVerify(q, scan, idx) {
+      const r = await Appliers.apply(q);
+      if (!r.ok) return { ok: false, msg: r.msg };
+      if (q.type !== 'code' || !Store.get('testVerify')) return { ok: true, msg: r.msg };
+
+      // Test 跑的是服务器上的代码，先等页面把代码同步过去
+      await Appliers.waitCodeSettled(q);
+      const v = await this.verifyCode(q);
+      if (v.state !== 'failed') return { ok: true, msg: r.msg, verify: v };
+
+      // 失败：把错误摊开，让用户决定（不自动重试）
+      const choice = await this.askTestDecision(q, v);
+      if (choice === 'stop' || choice === 'skip') {
+        q.testResult = Object.assign({}, q.testResult || {}, { waiting: false });
+        UI.refreshCard(q);
+        return { ok: true, msg: r.msg, verify: v, skipSubmit: true };
+      }
+
+      if (choice === 'retry') {
+        UI.status(L('第二次重试：按测试信息改写程序…', 'Retry #2: rewriting the program from the test feedback…'), 'busy');
+        try {
+          const ans = await Solvers.retryWithTests(q, scan, idx, v.failures);
+          q.answer = ans;
+          q.status = 'done';
+          q.error = '';
+          UI.refreshCard(q);
+          const r2 = await Appliers.apply(q);
+          if (r2.ok) {
+            await Appliers.waitCodeSettled(q);
+            const v2 = await this.verifyCode(q);
+            if (v2.state === 'failed') {
+              // 第二次还是没过：不再自动重试，让用户决定交不交
+              const choice2 = await this.askTestDecision(q, v2, { final: true });
+              if (choice2 === 'skip' || choice2 === 'stop') {
+                q.testResult = Object.assign({}, q.testResult, { waiting: false });
+                UI.refreshCard(q);
+                return { ok: true, msg: r.msg, verify: v2, skipSubmit: true };
+              }
+            } else {
+              q.testResult = { state: 'passed', summary: v2.summary || {}, failures: [], attempt: 2, waiting: false };
+            }
+          }
+        } catch (e) {
+          q.status = 'error';
+          q.error = (e && e.message) || String(e);
+          UI.refreshCard(q);
+          UI.status(L('重写失败：', 'Rewrite failed: ') + q.error, 'err');
+        }
+      }
+
+      q.testResult = Object.assign({}, q.testResult || {}, { waiting: false });
+      UI.refreshCard(q);
+      return { ok: true, msg: r.msg, verify: v };
+    },
+
     async fillOne(q) {
       if (!q.answer) {
         UI.toast(L('先点「生成」', 'Generate first'));
         return;
       }
-      const r = await Appliers.apply(q);
+      const scan = App.scan || { context: PageModel.contextText(), title: PageModel.title(), kind: PageModel.kind };
+      const idx = App.scan ? App.scan.questions.indexOf(q) : 0;
+      const r = await this.applyWithVerify(q, scan, idx);
       UI.toast(r.msg || (r.ok ? L('已填入', 'Filled') : L('填入失败', 'Fill failed')), r.ok ? 1800 : 3200);
       UI.status(r.msg || '', r.ok ? undefined : 'err');
-      if (r.ok && Store.get('autoSubmit')) {
+      if (r.ok && !r.skipSubmit && Store.get('autoSubmit')) {
         const s = await Appliers.submit(q);
         if (s.skipped) UI.toast(s.msg, 3200);
         else if (s.ok) UI.toast(s.msg);
@@ -326,7 +461,7 @@
             continue;
           }
 
-          const r = await Appliers.apply(q);
+          const r = await this.applyWithVerify(q, scan, i);
           if (!r.ok) {
             q.submitStatus = 'error';
             q.submitError = r.msg;
@@ -335,6 +470,15 @@
             continue;
           }
           stat.filled++;
+
+          // 用户选择「不提交」：这题先放着
+          if (r.skipSubmit) {
+            q.submitStatus = 'skipped';
+            q.submitError = '';
+            stat.skipped++;
+            UI.refreshCard(q);
+            continue;
+          }
 
           const s = await Appliers.submit(q);
           if (s.skipped) {
@@ -743,7 +887,7 @@
 
       // 调试入口
       try {
-        W.__JMAI__ = { App, UI, Actions, PageModel, Solvers, HumanTyping, Appliers, ParsonsHelper, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
+        W.__JMAI__ = { App, UI, Actions, PageModel, Solvers, HumanTyping, Appliers, ParsonsHelper, Testers, LLM, NetTap, Store, Theme, MD, copyText, PRESETS, modelSuggestions, IS_MAC, curLang, outputLanguage, outputLanguageName, VERSION };
       } catch (e) {
         /* ignore */
       }

@@ -67,6 +67,36 @@
   脚本侧：提示词要求输出整段程序（v1.14.2），另外模型万一只回一截，
   会把那一截**拼回原始代码**（`for i in _____(7):` + `range` → `for i in range(7):`）。
 
+## 站点的 Test 按钮（2026-11-10 真页实测，v1.14.3 用它做二次验证）
+
+练习题页的 IDE 右上角工具条里有一个**橙色按钮「Tests」**（`<a aria-label="Run tests" role="button">`，
+背景色 `rgb(225,117,55)`），它是站点的单元测试入口。整条链路（Countdown Fix 练习实测）：
+
+1. 点橙色 **Tests** → 弹出总览面板（**不是** MUI Modal，就是一个普通 div，class `la0T6q_root`）：
+   - `.la0T6q_testSummaryText`：如 `1 Test Total`（这里数的是**测试套**的个数）；
+   - `.la0T6q_testSummaryBadge`：`N Passed` / `N Failed` / `N Timeout`；
+   - 每张测试卡 `.la0T6q_testCard` 里才是**用例**数：`.la0T6q_testCardTotalTests` = `3 Tests Total`，
+     `.la0T6q_testCardBadge` = `2 Passed` / `1 Failed`。
+   - 时序：面板**立刻**出现，数字约 **3~4 秒**后才跑出来。
+2. 点卡片里的 **View Results**（`.la0T6q_testCardButton`）→ 弹出结果弹窗
+   （`agmXLG_testCreationModal`），每条用例一行 `.agmXLG_testItem`：
+   - 头部 `.agmXLG_testHeader`（带 `.agmXLG_failed` / `.agmXLG_passed`）；
+   - 右侧 `.agmXLG_expandIcon`（一个 `>` 箭头）点开就展开明细。
+3. 展开后是 `.agmXLG_testDetails`，一排 `.agmXLG_detailRow` = `.agmXLG_detailLabel` + `.agmXLG_detailValue`：
+   **Name / Description / Expected / Actual / Notes**（Notes 里常常直接写了该怎么改）。
+   Expected 是 `contains '10\n9\n...'` 这种形式，Actual 是程序真正的输出。
+
+关面板：
+
+- 结果弹窗的关闭键是 `.agmXLG_closeButton`（一个 `<a>`，里面同样是 `svg[data-testid="CloseIcon"]`）；
+- 总览面板的关闭键是**右上角那个白色圆钮**，它不在 `.la0T6q_root` 里面，而是一串没有 class 的 div，
+  只能靠「`svg[data-testid="CloseIcon"]` 且不在 `.agmXLG_testCreationModal` / `.Gw0Yra_closeButton` /
+  `[aria-label="Close"]` 里」认出来。点它的**父元素**才关得掉。
+- **Esc 无效**；面板开着的时候会挡住 IDE，后面的提交点不到，所以插件读完必须把两个面板都关掉。
+
+注意：跑的是**服务器上的代码**，所以点 Tests 之前要先等页面把编辑器里的代码同步过去
+（脚本用设置里的「代码写入后等待」秒数）。
+
 ## 写入方式（实测）
 
 | 目标 | 可用方法 | 备注 |

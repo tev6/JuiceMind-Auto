@@ -5,7 +5,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.14.2
+// @version      1.14.3
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       tev6
 // @match        https://play.juicemind.com/*
@@ -55,7 +55,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.14.2';
+  const VERSION = '1.14.3';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -229,6 +229,7 @@
     maxTokens: 2048, // 答案生成的上限
     summaryTokens: 4096, // 页面总结 / 对话的上限（总结一整页要写的比较多）
     codeWaitSec: 5, // 代码写进编辑器后等几秒再提交（3~10 秒）
+    testVerify: true, // 代码题提交前先跑站点 IDE 的 Test 做二次验证（失败会让用户确认）
     extraHeaders: '',
     explain: false, // 是否让模型返回解析（更耗 token，默认关）
     jsonMode: true, // 请求 response_format=json_object，失败自动降级

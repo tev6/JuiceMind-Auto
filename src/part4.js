@@ -9,6 +9,16 @@
 - parsons: 行号数组（从 0 开始，按正确顺序）
 - blank: 按空位从左到右`;
 
+  /**
+   * 第二次重试时额外加的规则。
+   * 必须写明这是**第二次**尝试：模型才知道上一版已经试过一次，
+   * 该在上一版的基础上改，而不是从头再来一遍。
+   */
+  const RETRY_RULE =
+    '【这是第二次重试（retry #2）】你上一版程序没有通过站点的单元测试。' +
+    '请对照给出的「期望输出 / 实际输出 / 备注」改正程序，不要重复上一版的错误；' +
+    '仍然输出完整、可直接运行的程序（保留题目给的原代码结构）。';
+
   /* ============================ 6.5 拟人化输入 ============================ */
   /**
    * 把整篇代码「敲」进编辑器：随机节奏、偶尔打错再退格、偶尔回头看一眼前面的行。
@@ -377,6 +387,55 @@
       const answer = this.normalize(parsed, q);
       this.answers.set(this.cacheKey(q), { answer, at: Date.now() });
       return answer;
+    },
+
+    /**
+     * 第二次重试：把站点的测试失败信息喂给模型，让它改程序。
+     *
+     * 提示词里必须写明这是「第二次重试」——模型才知道上一版已经试过一次，
+     * 该在上一版的基础上改，而不是从头再来。
+     */
+    async retryWithTests(q, scan, idx, failures) {
+      if (!Store.get('apiKey')) throw new Error('请先在「设置」里填写 API Key');
+      const messages = [
+        { role: 'system', content: this.systemPrompt() + '\n\n' + RETRY_RULE },
+        {
+          role: 'user',
+          content: [
+            this.contextFor(scan, q),
+            this.questionBlock(q, idx),
+            this.testFailBlock(failures),
+            '\n这是第二次重试，请根据上面的测试失败信息改正程序，给出这一题的答案 JSON。',
+          ].join('\n\n'),
+        },
+      ];
+      let res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q) });
+      let parsed = LLM.extractJson(res.text);
+      if (!parsed) {
+        log('重试没解析出 JSON，放宽输出预算再来一次');
+        res = await LLM.chat({ messages, stream: false, json: true, maxTokens: this.maxTokensFor(q, 4) });
+        parsed = LLM.extractJson(res.text);
+      }
+      if (!parsed) throw new Error(this.parseFailMessage(res));
+      const answer = this.normalize(parsed, q);
+      this.answers.set(this.cacheKey(q), { answer, at: Date.now() });
+      return answer;
+    },
+
+    /** 把测试失败信息整理成给模型看的块 */
+    testFailBlock(failures) {
+      const list = failures && failures.length ? failures : [];
+      if (!list.length) return '【站点单元测试结果】第一次尝试没有通过测试，但没有读到具体用例，请自己复核程序。';
+      const lines = ['【站点单元测试结果：第一次尝试没有通过】'];
+      list.forEach((f, i) => {
+        lines.push('--- 失败用例 ' + (i + 1) + ' ---');
+        if (f.name) lines.push('测试名：' + f.name);
+        if (f.description) lines.push('测试说明：' + f.description);
+        if (f.expected) lines.push('期望输出：\n' + f.expected);
+        if (f.actual) lines.push('实际输出：\n' + f.actual);
+        if (f.notes) lines.push('测试备注：' + f.notes);
+      });
+      return lines.join('\n');
     },
 
     /** 整页一次请求答完（省掉重复的 system + 上下文） */
@@ -891,6 +950,7 @@
       const code = (answer.answers || []).join('\n').replace(/^\s*```[a-zA-Z]*\s*/, '').replace(/\s*```\s*$/, '');
       if (!code.trim()) return { ok: false, msg: '代码为空' };
       const done = await this.setCode(q, code);
+      if (done) q._settledAt = 0; // 刚写完，得重新等一次同步
       return { ok: done, msg: done ? '已写入编辑器（' + code.split('\n').length + ' 行）' : '编辑器写入失败，请手动复制' };
     },
 
@@ -1098,8 +1158,11 @@
     async waitCodeSettled(q) {
       if (!q || q.type !== 'code') return;
       const sec = Math.max(3, Math.min(10, Number(Store.get('codeWaitSec')) || 5));
+      // 刚等过就别再等一次（Test 验证之后紧接着提交，别白白多等 5 秒）
+      if (q._settledAt && Date.now() - q._settledAt < sec * 1000) return;
       UI.status(L(`代码已写入，等 ${sec} 秒让页面同步…`, `Code written — waiting ${sec}s for the page to sync…`), 'busy');
       await sleep(sec * 1000);
+      q._settledAt = Date.now();
     },
 
     /** 再操作一次：受控组件偶尔会漏掉第一次点击 */
@@ -1452,6 +1515,259 @@
         await sleep(150);
       }
       return false;
+    },
+  };
+
+  /* ============================ 8.6 站点的 Test 二次验证 ============================ */
+  /**
+   * 练习题页的 IDE 右上角有一个橙色的「Tests」按钮：点它跑一遍站点的单元测试，
+   * 失败了还能点开每个错题，看期望输出 / 实际输出 / 备注。
+   *
+   * 站点没有公开这些面板的结构契约（换版本就会变），所以这里靠「文案 + 结构特征」认，
+   * 不认某一个固定 class：
+   *   · 橙色按钮：<a aria-label="Run tests">
+   *   · 测试总览面板：标题写着 Tests，里面有 "N Test Total / N Passed / N Failed"
+   *   · 每张测试卡的「View Results」按钮
+   *   · 结果弹窗：每条用例一行，失败的那条能展开成 Name/Description/Expected/Actual/Notes
+   *
+   * 真页实测（2026-11-10，Countdown Fix 练习）：
+   *   点 Tests → 约 3~4 秒出总览 → 点 View Results → 点失败那条 → 展开出期望/实际/备注。
+   */
+  const Testers = {
+    /** 橙色「Tests」按钮 */
+    runButton() {
+      return document.querySelector('[aria-label="Run tests"]');
+    },
+
+    /** 这一页能不能做 Test 验证 */
+    available() {
+      try {
+        return !!this.runButton();
+      } catch (e) {
+        return false;
+      }
+    },
+
+    /**
+     * 等一会儿再看有没有 Tests 按钮。
+     * 练习题页的 IDE 是异步挂载的：刚进页面时可能只有「Loading…」，
+     * 这时候直接说「不能验证」就白白浪费了一次验证机会。
+     */
+    async waitAvailable(timeout) {
+      const t0 = Date.now();
+      while (Date.now() - t0 < (timeout || 5000)) {
+        if (this.available()) return true;
+        await sleep(250);
+      }
+      return false;
+    },
+
+    /**
+     * 点 Tests，等总览面板出结果。
+     * @returns {{ok: boolean, reason?: string, summary?: object}}
+     */
+    async run(timeout) {
+      const btn = this.runButton();
+      if (!btn) return { ok: false, reason: 'no-button' };
+      const limit = timeout || 30000;
+      const t0 = Date.now();
+
+      try {
+        btn.click();
+      } catch (e) {
+        return { ok: false, reason: 'click-failed' };
+      }
+
+      // 1) 等总览面板冒出来
+      let panel = null;
+      while (Date.now() - t0 < limit) {
+        panel = document.querySelector('.la0T6q_root');
+        if (panel) break;
+        await sleep(200);
+      }
+      if (!panel) return { ok: false, reason: 'no-panel' };
+
+      // 2) 等它把数字跑出来（"1 Test Total / 0 Passed / 1 Failed / 0 Timeout"）
+      let summary = null;
+      while (Date.now() - t0 < limit) {
+        const text = String(textOf(panel) || '');
+        if (/Test Total/i.test(text)) {
+          summary = this.readSummary(panel);
+          break;
+        }
+        // 这一页压根没配测试：别傻等
+        if (/no tests?|没有测试/i.test(text)) {
+          summary = this.readSummary(panel);
+          summary.tests = 0;
+          summary.none = true;
+          break;
+        }
+        panel = document.querySelector('.la0T6q_root') || panel;
+        await sleep(250);
+      }
+      if (!summary) {
+        summary = this.readSummary(panel);
+        summary.none = !summary.tests;
+      }
+      return { ok: true, summary };
+    },
+
+    /** 从总览面板里读数字：测试卡里有「N Tests Total / N Passed / N Failed」 */
+    readSummary(panel) {
+      const root = panel || document.querySelector('.la0T6q_root');
+      const out = { suites: 0, tests: 0, passed: 0, failed: 0, timeout: 0, none: false };
+      if (!root) return out;
+      const num = (s) => {
+        const m = String(s || '').match(/(\d+)/);
+        return m ? Number(m[1]) : 0;
+      };
+      const total = root.querySelector('.la0T6q_testSummaryText');
+      if (total) out.suites = num(textOf(total));
+      root.querySelectorAll('.la0T6q_testCard').forEach((card) => {
+        const tt = card.querySelector('.la0T6q_testCardTotalTests');
+        if (tt) out.tests += num(textOf(tt));
+        card.querySelectorAll('.la0T6q_testCardBadge').forEach((b) => {
+          const t = oneLine(textOf(b) || '').toLowerCase();
+          const v = num(textOf(b));
+          if (/passed/.test(t)) out.passed += v;
+          else if (/failed/.test(t)) out.failed += v;
+          else if (/timeout/.test(t)) out.timeout += v;
+        });
+      });
+      // 兜底：总览上的徽章也算一遍
+      if (!out.tests) {
+        root.querySelectorAll('.la0T6q_testSummaryBadge').forEach((b) => {
+          const t = oneLine(textOf(b) || '').toLowerCase();
+          const v = num(textOf(b));
+          if (/passed/.test(t)) out.passed += v;
+          else if (/failed/.test(t)) out.failed += v;
+          else if (/timeout/.test(t)) out.timeout += v;
+        });
+        const tt = root.querySelector('.la0T6q_testSummaryText');
+        out.tests = out.passed + out.failed + out.timeout;
+        if (tt && !out.suites) out.suites = num(textOf(tt));
+      }
+      return out;
+    },
+
+    /**
+     * 读出每个错题的具体信息（期望输出 / 实际输出 / 备注）。
+     * 流程：点 View Results → 等结果弹窗 → 展开每一条 FAILED → 读详情。
+     * @returns {Array<{name:string,description:string,expected:string,actual:string,notes:string}>}
+     */
+    async readFailures(timeout) {
+      const out = [];
+      const limit = timeout || 20000;
+      const vr = document.querySelector('.la0T6q_testCardButton');
+      if (!vr) return out;
+      try {
+        vr.click();
+      } catch (e) {
+        return out;
+      }
+
+      const t0 = Date.now();
+      let box = null;
+      while (Date.now() - t0 < limit) {
+        box = document.querySelector('.agmXLG_testResultsContainer');
+        if (box && /test_/i.test(String(textOf(box) || ''))) break;
+        box = null;
+        await sleep(250);
+      }
+      if (!box) return out;
+
+      const items = Array.prototype.slice.call(box.querySelectorAll('.agmXLG_testItem'));
+      for (const it of items) {
+        const head = it.querySelector('.agmXLG_testHeader');
+        const failed =
+          (head && head.className && /agmXLG_failed/.test(String(head.className))) ||
+          /FAILED/i.test(String(textOf(it) || ''));
+        if (!failed) continue;
+
+        const icon = it.querySelector('.agmXLG_expandIcon');
+        if (icon) {
+          try {
+            icon.click();
+          } catch (e) {
+            /* ignore */
+          }
+          await sleep(350);
+        }
+
+        const rows = {};
+        it.querySelectorAll('.agmXLG_detailRow').forEach((row) => {
+          const lab = oneLine((row.querySelector('.agmXLG_detailLabel') || {}).textContent || '').replace(/:\s*$/, '');
+          const val = (row.querySelector('.agmXLG_detailValue') || {}).textContent || '';
+          if (lab) rows[lab] = val;
+        });
+
+        let name = rows['Name'] || '';
+        if (!name) {
+          name = oneLine((it.querySelector('.agmXLG_testName') || {}).textContent || '')
+            .replace(/(FAILED|PASSED|TIMEOUT)$/i, '')
+            .trim();
+        }
+        out.push({
+          name: name,
+          description: rows['Description'] || '',
+          expected: rows['Expected'] || '',
+          actual: rows['Actual'] || '',
+          notes: rows['Notes'] || '',
+        });
+      }
+      return out;
+    },
+
+    /** 把站点的两个面板都关掉（不然会挡住 IDE，后面的提交点不到） */
+    close() {
+      // 先关结果弹窗
+      const cb = document.querySelector('.agmXLG_closeButton');
+      if (cb) {
+        try {
+          cb.click();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      // 再关 Tests 总览面板：右上角那个白色圆钮（<svg data-testid="CloseIcon">）
+      const svgs = Array.prototype.slice.call(document.querySelectorAll('svg[data-testid="CloseIcon"]')).filter((s) => {
+        if (s.closest('.agmXLG_testCreationModal')) return false; // 结果弹窗自己的
+        if (s.closest('.Gw0Yra_closeButton')) return false; // 编辑器标签页的
+        if (s.closest('[aria-label="Close"]')) return false; // 站点公告条的
+        return true;
+      });
+      for (const s of svgs) {
+        const target = s.parentElement || s;
+        try {
+          target.click();
+        } catch (e) {
+          /* ignore */
+        }
+        break;
+      }
+      return !document.querySelector('.la0T6q_root');
+    },
+
+    /**
+     * 一次完整的验证：跑测试 → 有失败就读详情 → 关面板。
+     * @returns {{state:'passed'|'failed'|'none'|'error', summary?:object, failures?:Array, msg?:string}}
+     */
+    async verify(timeout) {
+      if (!this.available()) return { state: 'none', msg: 'no-button' };
+      const run = await this.run(timeout);
+      if (!run.ok) return { state: 'error', msg: run.reason || 'run-failed' };
+      const summary = run.summary || { tests: 0, passed: 0, failed: 0, timeout: 0 };
+      if (!summary.tests) {
+        this.close();
+        return { state: 'none', summary };
+      }
+      if (!summary.failed && !summary.timeout) {
+        this.close();
+        return { state: 'passed', summary };
+      }
+      const failures = await this.readFailures();
+      this.close();
+      return { state: 'failed', summary, failures };
     },
   };
 
