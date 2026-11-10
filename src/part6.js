@@ -93,7 +93,11 @@
       }
     },
 
-    async solveAll() {
+    /**
+     * 生成答案。
+     * @param {Array} [only] 只生成这些题的答案（已提交过的题不用白花 token）
+     */
+    async solveAll(only) {
       if (App.busy) return;
       const scan = App.scan;
       if (!scan || !scan.questions.length) {
@@ -102,10 +106,14 @@
       }
       if (!this.ensureKey()) return;
 
-      const qs = scan.questions;
+      const qs = only || scan.questions;
+      if (!qs.length) {
+        UI.toast(L('没有需要生成答案的题', 'No question needs an answer'));
+        return;
+      }
       if (Store.get('batchSolve') !== false && qs.length > 1) {
         try {
-          await this.solveAllBatch(scan);
+          await this.solveAllBatch(scan, qs);
           return;
         } catch (e) {
           log('批量作答失败，改用逐题', e && e.message);
@@ -149,8 +157,8 @@
     },
 
     /** 一次请求答完整页 */
-    async solveAllBatch(scan) {
-      const qs = scan.questions;
+    async solveAllBatch(scan, only) {
+      const qs = only || scan.questions;
       App.busy = true;
       this.setBusy(true);
       UI.setStopVisible(true);
@@ -284,7 +292,8 @@
         }
 
         // 2) 生成（批量优先，批量失败自动回退逐题）
-        await this.solveAll();
+        //    只给「还没提交过」的题生成答案 —— 已经交过的题不白花 token
+        await this.solveAll(openQs);
         if (App.stopMark !== mark) {
           UI.status(L('已停止', 'Stopped'));
           return;

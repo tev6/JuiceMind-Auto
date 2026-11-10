@@ -9,7 +9,7 @@
 A Tampermonkey script for [play.juicemind.com](https://play.juicemind.com): it finds the questions on the page, calls a large language model API to generate answers, then fills them back in and submits everything automatically.
 
 [![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.14.0-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![Version](https://img.shields.io/badge/version-1.14.1-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![The panel: questions scanned and answers generated](docs/img/panel-en.png)
@@ -134,7 +134,7 @@ Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse / expand the panel · `Alt + Ente
 
 **Answers can't be changed after submission** — that's how the site works. `submitted, incorrect` means it went through but the answer was wrong; all you can do is know the result. The AI you call can be wrong too, which is exactly why every question's outcome is reported back.
 
-**What does "Complete this page" actually do?** For every question: fill in the answer, click submit, wait for the result, close the popup. Generation is still a single request for the whole page; only filling in and submitting happen question by question.
+**What does "Complete this page" actually do?** For every question: fill in the answer, click submit, wait for the result, close the popup. Questions you already submitted are left alone — they are neither filled in again nor submitted again. Generation is still a single request (for the questions that are still open); only filling in and submitting happen question by question.
 
 **Where are the advanced settings?** At the bottom of the settings page, in a collapsed section — temperature, two token budgets, context length, extra prompt, explanation language, and "Set model output language separately" (unchecked by default, so the model output follows the language switch in the top right).
 
@@ -149,7 +149,7 @@ Shortcuts: `Alt + J` (`⌥ J` on Mac) collapse / expand the panel · `Alt + Ente
 - After editing `src/`, run `node scripts/build.mjs` to rebuild the bundle; CI checks that the two match
 - Release loop: `node scripts/build.mjs --bump patch` bumps `@version`, `VERSION` and `package.json` together and rebuilds. CI fails the push if the bundle changed without a version bump — Tampermonkey only looks at the version number, so an unbumped release never reaches users
 - Students update automatically: the script header carries `@updateURL`, and Tampermonkey pulls the new version whenever the version number changes
-- Local tests: `npm i` → `npm test` (195 jsdom cases), `npm run test:ui` (drag / hide / streaming / one-click flow — needs a local Chrome)
+- Local tests: `npm i` → `npm test` (204 jsdom cases), `npm run test:ui` (drag / hide / streaming / one-click flow — needs a local Chrome)
 - README images: `npm run shots` renders them from a local mock page, so they carry no personal data
 - Icon: the design lives in `assets/icon/` — edit the SVG there, keep the coordinates even, then `node assets/icon/render.cjs` regenerates the PNGs
 - Real-page acceptance and screenshots: put the item IDs into `test/items.local.json` (template: `test/items.example.json`; that file is not committed), then run `node test/real.js` / `node test/shots-real.js`
@@ -164,6 +164,7 @@ Pull requests and issues are welcome — to add support for other courses, repor
 
 The full history lives in [CHANGELOG.en.md](CHANGELOG.en.md).
 
+- **1.14.1** — **fixes "Complete this page" stopping after the first question**: the questions after it had **not** been submitted at all, but were reported as *already submitted — skipped*. The check for "has this been submitted?" looked too wide (it picked up other questions' status words) and read "the button is disabled" as "already submitted" (the site disables it whenever the answer is empty). Now it works its way through every question on the page
 - **1.14.0** — **a tidier panel**: *Summary* and *Chat* are now a single **Chat** tab — the quick-study notes show up as a reply there, with a copy button underneath, and you can keep asking about them. *Scan page*, *Generate all* and *Fill all* now appear one after another instead of all at once. Answers and page summaries also get separate token budgets
 - **1.13.0** — **already-submitted pages are now skipped instead of failing**: the site keeps *Submit Answer* disabled forever once a question is handed in (*Needs grading* / *Graded*), so the script now recognises that state, says so, and never touches the button
 - **1.12.3** — **fixes the two errors that broke answering**: *Submit button is still disabled* and *The model did not return parseable JSON*. Before submitting, the script now waits until the page really accepts the answer (and clicks the option again if the page missed the first click); the output budget is now large enough for reasoning models, and an answer cut off mid-way is repaired instead of thrown away

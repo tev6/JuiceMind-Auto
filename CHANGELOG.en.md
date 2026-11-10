@@ -2,6 +2,28 @@
 
 The full version history. The README only keeps the most recent versions; new ones move here.
 
+## 1.14.1
+
+- **Fixes "Complete this page" stopping after the first question** — the rest were reported as
+  *already submitted — skipped*, although they had **not** been submitted.
+  v1.13.0 had two wrong signals for "has this question been submitted?":
+  - **the status word was looked up too widely**: after a question is submitted, the status word
+    (`Review pending` / `View grade`) appears inside **that question's own node** — but the question's
+    *parent* is the whole courseware body, which holds **other questions'** status words.
+    Searching the parent too meant that, as soon as question 1 was submitted, every later question
+    picked up its `Review pending` and was treated as done. Now only the question's own node counts.
+  - **"the button is disabled" was read as "already submitted"**: the site also disables
+    `Submit Answer` while the answer is empty (that is literally the rule), and the progress-panel
+    badge flips to *Needs grading* as soon as any one question is submitted.
+    Together those two wiped out every remaining unanswered question. The badge is now only used as a hint.
+- Measured on the real site (2026-11-10): once an answer is filled in, `Submit Answer` unlocks normally
+  (`disabled: true → false`) — **the site does not lock the whole page**, so "Complete this page" can
+  now work its way through every question.
+- Answer generation now only covers the questions that have not been submitted yet, so finished questions
+  no longer cost tokens.
+- The "the submit button stayed disabled" error now mentions the page's current state (awaiting grading?),
+  so it is clear whether the site rejected the answer or the page is locked.
+
 ## 1.14.0
 
 - **"Summary" and "Chat" are now a single "Chat" tab.**

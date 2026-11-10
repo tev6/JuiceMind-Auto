@@ -5,7 +5,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.14.0
+// @version      1.14.1
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       tev6
 // @match        https://play.juicemind.com/*
@@ -55,7 +55,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.14.0';
+  const VERSION = '1.14.1';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -2760,37 +2760,65 @@
      *
      * 站点给条目四种状态（打包产物里的枚举）：
      *   No submission / In progress / Needs grading / Graded
-     * 后两种说明**已经交过了**。这时提交栏的按钮会换成状态词，
-     * 而「Submit Answer」的 disabled 来自页面的 canSubmit —— 会一直禁用，
-     * 点它没有意义。这种时候要跳过并说清楚，而不是干等按钮解禁。
+     * 交过之后，**这道题自己的**提交栏里按钮会换成状态词
+     * （Review pending / View grade / Approval pending / Unsubmit）。
+     *
+     * 所以判断「这道题交过没有」只有一个可靠依据：**它自己那一块 DOM 里有没有状态词**。
+     *
+     * ⚠ 整页进度面板上的徽章**不能**用来判断某一道题：那是条目的状态，
+     * 页面里只要有一道题交了，它就会变成「Needs grading」——
+     * 拿它当逐题依据，会把后面所有还没交的题一起跳过。
      *
      * @param {object} q 这道题
      * @returns {'open'|'submitted'|'graded'}
      */
     submitState(q) {
-      const own = this.ownStatus(q);
-      if (own) return own;
-      // 整页徽章说这个条目交了，而这道题的按钮也确实点不动 —— 那就是交过了
-      const page = this.pageStatus();
-      if (page && this.isButtonDisabled(this.submitButton(q))) return page;
-      return 'open';
+      return this.ownStatus(q) || 'open';
     },
 
-    /** 题目自己的提交栏：交过之后，按钮会换成状态词 */
+    /**
+     * 题目自己的提交栏：交过之后，按钮会被换成状态词。
+     *
+     * ⚠ 只在**这道题自己的节点**里找，不能往父层找。
+     * 父层是整篇课件正文，里面躺着**别的题**的状态词：
+     * 第一题一交，后面每一题都会从正文里捡到那个「Review pending」，
+     * 于是全被误判成「已提交过·跳过」。
+     * （2026-11-10 真页实测：3.1.5 IDE 那页只有 Q1 交了，Q2/Q3 根本没交。）
+     */
     ownStatus(q) {
-      const roots = [q.container, q.container && q.container.parentElement].filter(Boolean);
-      for (const r of roots) {
-        for (const b of $$('button,[role="button"]', r)) {
-          const t = oneLine(textOf(b)).toLowerCase();
-          if (!t) continue;
-          if (t === 'review pending' || t === 'approval pending' || t === 'unsubmit' || t === 'run grading again') return 'submitted';
-          if (t === 'view grade') return 'graded';
-        }
+      const scope = this.ownScope(q);
+      if (!scope) return '';
+      for (const b of $$('button,[role="button"]', scope)) {
+        const t = oneLine(textOf(b)).toLowerCase();
+        if (!t) continue;
+        if (t === 'review pending' || t === 'approval pending' || t === 'unsubmit' || t === 'run grading again') return 'submitted';
+        if (t === 'view grade') return 'graded';
       }
       return '';
     },
 
-    /** 整页进度面板上的状态徽章（叶子节点，文字正好是状态名） */
+    /**
+     * 这道题「自己的」那一片 DOM。
+     *
+     * 正常路径：容器就是这道题的节点（.react-renderer.node-xxx），
+     * 提交栏在它里面。
+     * 兜底扫描（控件在课件正文之外）时容器是 <form>，
+     * 那就往上找到最近的那个题节点。
+     */
+    ownScope(q) {
+      const c = q && q.container;
+      if (!c) return null;
+      const rr = c.closest && c.closest('.react-renderer');
+      if (rr) return rr;
+      if (c.tagName === 'FORM') return c.parentElement || c;
+      return c;
+    },
+
+    /**
+     * 整页进度面板上的状态徽章（叶子节点，文字正好是状态名）。
+     * 这是**条目**的状态：页面里只要有一道题交了，它就会变成「Needs grading」，
+     * 所以只用来做提示，不能用来判断某一道题交没交。
+     */
     pageStatus() {
       const c = this._pageStatusCache;
       if (c && Date.now() - c.at < 2000) return c.value;
@@ -2904,12 +2932,16 @@
         if (again) ready = await this.waitEnabled(q, 2500);
       }
       if (!ready.ok) {
+        // 说清楚是「站点没收下这道答案」，还是「这一页已经被锁住了」
+        const locked = this.pageStatus()
+          ? L('（页面状态是「待老师批改」，这一页的提交可能被站点锁住了）', '(the page is awaiting grading — the site may have locked submissions)')
+          : '';
         return {
           ok: false,
           msg: L(
             '提交按钮一直是禁用的（站点没接受这道答案），请手动勾选并提交',
             'The submit button stayed disabled (the page did not accept the answer) — tick it and submit manually'
-          ),
+          ) + locked,
         };
       }
       const btn = this.submitButton(q) || ready.btn;
@@ -5061,7 +5093,11 @@ details.adv .adv-body { padding-top: 6px; }
       }
     },
 
-    async solveAll() {
+    /**
+     * 生成答案。
+     * @param {Array} [only] 只生成这些题的答案（已提交过的题不用白花 token）
+     */
+    async solveAll(only) {
       if (App.busy) return;
       const scan = App.scan;
       if (!scan || !scan.questions.length) {
@@ -5070,10 +5106,14 @@ details.adv .adv-body { padding-top: 6px; }
       }
       if (!this.ensureKey()) return;
 
-      const qs = scan.questions;
+      const qs = only || scan.questions;
+      if (!qs.length) {
+        UI.toast(L('没有需要生成答案的题', 'No question needs an answer'));
+        return;
+      }
       if (Store.get('batchSolve') !== false && qs.length > 1) {
         try {
-          await this.solveAllBatch(scan);
+          await this.solveAllBatch(scan, qs);
           return;
         } catch (e) {
           log('批量作答失败，改用逐题', e && e.message);
@@ -5117,8 +5157,8 @@ details.adv .adv-body { padding-top: 6px; }
     },
 
     /** 一次请求答完整页 */
-    async solveAllBatch(scan) {
-      const qs = scan.questions;
+    async solveAllBatch(scan, only) {
+      const qs = only || scan.questions;
       App.busy = true;
       this.setBusy(true);
       UI.setStopVisible(true);
@@ -5252,7 +5292,8 @@ details.adv .adv-body { padding-top: 6px; }
         }
 
         // 2) 生成（批量优先，批量失败自动回退逐题）
-        await this.solveAll();
+        //    只给「还没提交过」的题生成答案 —— 已经交过的题不白花 token
+        await this.solveAll(openQs);
         if (App.stopMark !== mark) {
           UI.status(L('已停止', 'Stopped'));
           return;

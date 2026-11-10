@@ -738,12 +738,24 @@ const doc = window.document;
   ok('已提交过的题不算问题', af7.stat.failed.length === 0, af7.stat.failed);
   ok('卡片上写着「已提交过·跳过」', af7.cardStates.length === 2 && af7.cardStates.every((s) => /跳过|skipped/i.test(s)), af7.cardStates);
 
-  // 27.2 进度面板写着 Needs grading（用户截图里的那个状态）
+  // 27.2 整页都交了（徽章 + 每道题自己的状态词）
   const af8 = await runAutoFlowCase({ result: 'Correct', pageDone: true });
   ok('整页已提交时不点任何按钮', af8.submits === 0 && af8.stat.submitted === 0, { submits: af8.submits, stat: af8.stat });
   ok('整页已提交时全部跳过', af8.stat.skipped === 2, af8.stat);
   ok('整页已提交时不白花 token', af8.reqs === 0, af8.reqs);
   ok('整页已提交时不算问题', af8.stat.failed.length === 0, af8.stat.failed);
+
+  // 27.3 只有整页徽章、各题自己的栏是干净的 → 一道都不能跳
+  //     （徽章说的是条目状态，不是某道题的状态）
+  const af9 = await runAutoFlowCase({ result: 'Correct', pageBadgeOnly: true });
+  ok('只有整页徽章时不会误跳过', af9.stat.skipped === 0 && af9.stat.submitted === 2, af9.stat);
+  ok('只有整页徽章时会照样提交', af9.submits === 2, af9.submits);
+
+  // 27.4 第一题交了、后面的没交 → 只跳第一题（2026-11-10 用户报的故障）
+  const af10 = await runAutoFlowCase({ result: 'Correct', firstSubmitted: true });
+  ok('只跳第一题，后面的照常提交', af10.stat.skipped === 1 && af10.stat.submitted === 1, af10.stat);
+  ok('后面那题真的提交了', af10.submits === 1, af10.submits);
+  ok('后面那题不算问题', af10.stat.failed.length === 0, af10.stat.failed);
 
   console.log('\n【28】两套 token 预算互不干扰');
   J.Store.set({ maxTokens: 1024, summaryTokens: 8192 });
@@ -759,9 +771,9 @@ const doc = window.document;
   J.Store.set({ maxTokens: 2048, summaryTokens: 4096 });
 
   // 答案生成（批量）也要被「答案生成最大 tokens」卡住
-  const af9 = await runAutoFlowCase({ result: 'Correct', maxTokens: 1024 });
-  ok('批量答题的输出不超过「答案生成最大 tokens」', af9.budgets.length > 0 && af9.budgets.every((b) => b <= 1024), af9.budgets);
-  ok('批量答题按题型给的预算不超过上限', af9.budgets.length > 0 && af9.budgets.every((b) => b > 0 && b <= 1024), af9.budgets);
+  const afBudget = await runAutoFlowCase({ result: 'Correct', maxTokens: 1024 });
+  ok('批量答题的输出不超过「答案生成最大 tokens」', afBudget.budgets.length > 0 && afBudget.budgets.every((b) => b <= 1024), afBudget.budgets);
+  ok('批量答题按题型给的预算不超过上限', afBudget.budgets.length > 0 && afBudget.budgets.every((b) => b > 0 && b <= 1024), afBudget.budgets);
 
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
@@ -881,23 +893,36 @@ async function runAutoFlowCase(opts) {
     sync();
   });
 
-  // ---- 模拟「已经提交过」：交过之后站点会把按钮换成状态词 ----
+  // ---- 模拟「已经提交过」：交过之后站点会把**这道题自己的**按钮换成状态词 ----
+  // 真页实测（2026-11-10）：每道题自己的节点里才会出现状态词，
+  // 所以这里必须挂在题目的节点里，不能挂到整页上。
+  const markSubmitted = (box, word) => {
+    const bar = box.querySelector('.flex.items-center.gap-2') || box;
+    const b = w.document.createElement('button');
+    b.type = 'button';
+    b.textContent = word;
+    bar.appendChild(b);
+  };
   if (o.submitted) {
-    w.document.querySelectorAll('[data-multipleChoiceQuestion]').forEach((box) => {
-      const bar = box.querySelector('.flex.items-center.gap-2') || box;
-      const b = w.document.createElement('button');
-      b.type = 'button';
-      b.textContent = 'Review pending';
-      bar.appendChild(b);
-    });
+    w.document.querySelectorAll('[data-multipleChoiceQuestion]').forEach((box) => markSubmitted(box, 'Review pending'));
+  }
+  // 只有第一题交了（用户报的故障场景：第一题交完，后面全被误判成「已提交过」）
+  if (o.firstSubmitted) {
+    const boxes = w.document.querySelectorAll('[data-multipleChoiceQuestion]');
+    if (boxes[0]) markSubmitted(boxes[0], 'Review pending');
   }
 
   // ---- 模拟进度面板上的状态徽章（Needs grading / Graded）----
-  if (o.pageDone) {
+  // 这是**条目**的状态：只要页面里有一道题交了，它就会变成这样。
+  if (o.pageDone || o.pageBadgeOnly || o.firstSubmitted) {
     const panel = w.document.createElement('div');
     panel.className = 'progress-panel';
     panel.innerHTML = '<div>Your Progress</div><span class="badge">Needs grading</span>';
     w.document.body.appendChild(panel);
+  }
+  // 整页都交了：徽章之外，每道题自己的栏里也有状态词（真页就是这样）
+  if (o.pageDone) {
+    w.document.querySelectorAll('[data-multipleChoiceQuestion]').forEach((box) => markSubmitted(box, 'View grade'));
   }
 
   // ---- 模拟站点的受控组件：有时会漏掉第一次点击，有时怎么都点不动 ----
