@@ -5,7 +5,7 @@
 {"type":"mcq|multiselect|short|free|code|parsons|blank","answers":[...],"explanation":"可选"}
 - mcq: ["B"]；multiselect: ["A","C"]
 - short/free: 可直接填入的段落数组
-- code: 完整可运行代码（保留缩进）
+- code: 完整可运行代码全文（保留缩进，含题目给的原代码）
 - parsons: 行号数组（从 0 开始，按正确顺序）
 - blank: 按空位从左到右`;
 
@@ -212,7 +212,7 @@
         '你是 JuiceMind 课程助手，替上课的学生作答，答案要能直接填进页面。',
         '规则：',
         '1. 依据题干、选项与上下文作答；选择题只看选项内容，多选给全。',
-        '2. 代码题按题目要求的函数名与输入输出写完整代码，保留缩进，不要 Markdown 围栏。',
+        '2. 代码题输出整段完整程序：保留题目给的原代码，把空补上整体输出；哪怕题目只让你补一个空，也不要只回那一截。',
         '3. 简答 2~4 句，用题目语言；填空按空位顺序、保留原拼写。',
         '4. answers 用' + outLang + '；' + (explain ? 'explanation 用' + lang + '。' : '不要输出 explanation 字段。'),
         batch ? '5. 批量作答：返回 {"answers":[{"i":题号, ...}, ...]}，i 从 1 开始，覆盖每一题。' : '',
@@ -458,12 +458,61 @@
         .map((a) => (a.length < 400 && /\n/.test(a) ? a.replace(/\n+$/, '') : a));
 
       const type = parsed.type || q.type;
-      return {
+      const out = {
         type,
         answers,
         explanation: oneLine(parsed.explanation || parsed.reasoning || parsed.reason || ''),
         raw: parsed,
       };
+      // 代码题兜底：模型只回了要补的那一截，拼回原始程序
+      const fixed = this.fixCodeFragment(out, q);
+      if (fixed) {
+        out.answers = [fixed.code];
+        out.explanation = (out.explanation ? out.explanation + ' ' : '') + fixed.note;
+      }
+      return out;
+    },
+
+    /**
+     * 「填空式」代码练习的兜底。
+     *
+     * 题目让模型补一个空（`for i in _____(7):`），有些模型会只回那几个字（`range`）。
+     * 插件是**整段覆盖**编辑器，只回一个片段等于把原程序冲掉 —— 这里把它拼回原始代码。
+     *
+     * @returns {{code: string, note: string}|null} 拼不了就返回 null
+     */
+    fixCodeFragment(answer, q) {
+      if (!q || q.type !== 'code') return null;
+      // 原始代码只认第一次读到的：之后插件可能已经往编辑器里写过东西了
+      if (q._origCode == null) q._origCode = Appliers.readCode(q) || '';
+      const original = q._origCode;
+      const frag = (answer.answers || []).join('\n').trim();
+      const code = this.spliceBlank(original, frag);
+      if (!code) return null;
+      return {
+        code,
+        note: L(
+          '（模型只回了要补的那一截，已帮你拼回完整程序）',
+          '(the model returned only the blank — it was spliced back into the full program)'
+        ),
+      };
+    },
+
+    /**
+     * 把一个「空位的填法」拼回原始代码。
+     * 只认「一个名字 / 一次调用 / 一个字符串」这种短片段，
+     * 免得把整段程序误当成填法塞进空里。
+     */
+    spliceBlank(original, frag) {
+      if (!original || !frag) return '';
+      if (!/_{2,}/.test(original)) return ''; // 原代码里没有空位，用不上
+      const f = String(frag).trim();
+      if (!f || f.length > 40 || /\n/.test(f)) return '';
+      const ok = /^(?:[A-Za-z_][A-Za-z0-9_]*(?:\s*\([^()]*\))?|["'][^"'\n]*["'])$/;
+      if (!ok.test(f)) return '';
+      // print / return / for … 这些是语句，不是填法
+      if (/^(print|return|if|for|while|def|class|import|from|else|elif|try|except|with|assert|lambda|pass|break|continue|raise|yield)\b/i.test(f)) return '';
+      return original.replace(/_{2,}/, () => f);
     },
 
     /* --------------------------- 批量 --------------------------- */
@@ -1039,6 +1088,20 @@
       return { ok: false, btn };
     },
 
+    /**
+     * 代码写进编辑器之后，等页面把它同步好再提交。
+     *
+     * IDE 要把代码送过去、跑起来；提交太快站点会以为程序没就绪，
+     * 弹一个「先运行测试之类的」提示框，把后面的题全挡住。
+     * 等多久可以在设置里调（3~10 秒）。
+     */
+    async waitCodeSettled(q) {
+      if (!q || q.type !== 'code') return;
+      const sec = Math.max(3, Math.min(10, Number(Store.get('codeWaitSec')) || 5));
+      UI.status(L(`代码已写入，等 ${sec} 秒让页面同步…`, `Code written — waiting ${sec}s for the page to sync…`), 'busy');
+      await sleep(sec * 1000);
+    },
+
     /** 再操作一次：受控组件偶尔会漏掉第一次点击 */
     async retryApply(q) {
       if (!q.answer) return false;
@@ -1062,6 +1125,9 @@
       }
       const found = this.submitButton(q);
       if (!found) return { ok: false, msg: L('没找到提交按钮，请手动提交', 'No submit button found — submit it manually') };
+
+      // 代码题：等页面把代码同步好再提交，免得站点弹提示框
+      await this.waitCodeSettled(q);
 
       // 按钮解禁 = 站点收下了这道答案。不能只看一次，要给它一点反应时间。
       let ready = await this.waitEnabled(q, 1200);

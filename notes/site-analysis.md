@@ -60,6 +60,12 @@
 - 左：`[data-testid="lesson-body-editor"]`（就是正文 `.ProseMirror`），题面写在这里；
 - 右：页面级 `[data-testid="ide-panel"]`，含 `[data-testid="ide-tab"]`（main.py）、`[data-testid="ide-panel-layout"]`，代码编辑器是 **CodeMirror 6**（`.cm-editor`），**不是 Monaco**；
 - IDE 是**异步挂载**的：进页面 2~3 秒内可能只有一个 `node-ide` 显示 `Loading…`，此时扫描应该跳过而不是造一道空题（脚本会等编辑器出现再重扫一次）。
+- 练习题有两种形态：
+  - **改错题**（Hello World Repair）：编辑器里是一段有语法错的代码，题面说要修好它；
+  - **补空题**（Cheer Squad）：编辑器里是 `for i in _____(7):` 这种带下划线空位的模板，题面说「补全空位」。
+  两种都要**输出整段完整程序**——编辑器是整段覆盖的，只回一个空位的填法（`range`）会把程序冲掉。
+  脚本侧：提示词要求输出整段程序（v1.14.2），另外模型万一只回一截，
+  会把那一截**拼回原始代码**（`for i in _____(7):` + `range` → `for i in range(7):`）。
 
 ## 写入方式（实测）
 

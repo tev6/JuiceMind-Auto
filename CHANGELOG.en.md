@@ -2,6 +2,34 @@
 
 The full version history. The README only keeps the most recent versions; new ones move here.
 
+## 1.14.2
+
+- **Fixes code questions losing the whole program.**
+  Reported in real testing: the exercise asks you to fill in a blank
+  ```
+  for i in _____(7):
+    print("Go Team Go!")
+  ```
+  and the plugin wrote just `range` into the editor — **wiping the rest of the code**.
+  The cause was the system prompt: it used to say "write complete code per the function name
+  the question asks for", which a "complete the blank" exercise made the model read as
+  "answer the blank only".
+  The prompt now says it plainly:
+  > For code questions, output the whole program: keep the code the question gave you, fill the
+  > blank in, and output the whole thing — even if the question only asks you to fill one blank,
+  > do not reply with just that piece.
+
+  The answer schema now reads `code: the full runnable program (keep the indentation and the
+  original code)`.
+- **One more safety net**: if the model *still* replies with only that piece, the plugin splices it
+  back into the original code (`for i in _____(7):` + `range` → `for i in range(7):`) instead of
+  overwriting the whole program with a fragment. Only short fragments (a name, a call, a string)
+  are spliced — a full program or a statement is left alone.
+- **New setting "Wait after writing code (seconds)"** (3–10 s, 5 by default).
+  After the code is typed into the editor the script waits for the page to sync it before
+  submitting; otherwise the site thinks the program is not ready and pops up a warning that
+  blocks the remaining questions.
+
 ## 1.14.1
 
 - **Fixes "Complete this page" stopping after the first question** — the rest were reported as

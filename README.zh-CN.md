@@ -9,7 +9,7 @@
 给 [play.juicemind.com](https://play.juicemind.com) 用的 Tampermonkey 脚本：识别页面上的题目，调用大模型 API 生成答案，再全流程、全自动地填回页面并提交。
 
 [![CI](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml/badge.svg)](https://github.com/tev6/JuiceMind-Auto/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-1.14.1-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
+[![Version](https://img.shields.io/badge/version-1.14.2-blue)](https://github.com/tev6/JuiceMind-Auto/commits/main)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ![插件面板：扫描出题目并生成答案](docs/img/panel.png)
@@ -141,6 +141,8 @@ Tampermonkey 会拿 GitHub 上的版本号和本地比一比，有新版本就�
 
 **两个 token 上限是干什么的？** 「答案生成最大 tokens」管的是生成答案时的输出上限（默认 2048），「页面总结最大 tokens」管的是页面总结和对话回复（默认 4096）。分开算之后，一篇长总结就不会再把答案的额度吃掉。
 
+**写完代码为什么要等几秒？** 代码敲进编辑器之后，页面还要同步、运行一遍才肯收下答案。提交太快，站点会弹一个提示框，反过来把后面的题全挡住。「代码写入后等待（秒）」调的就是这段停顿（3~10 秒，默认 5）。
+
 **怎么展开收起的扫描、看 token 用量、挪面板？** 扫描收起后，点它上方可以展开看完整题干、全部选项和完整答案。页脚显示本会话累计的 token 用量，请求进行中可以点「停止」中断，已生成的内容会保留。拖标题栏或底部移动整窗，收起后变成可拖动的圆钮。
 
 ## 开发
@@ -150,7 +152,7 @@ Tampermonkey 会拿 GitHub 上的版本号和本地比一比，有新版本就�
 - 改完 `src/` 后运行 `node scripts/build.mjs` 重新生成 bundle；CI 会校验两者是否一致
 - 发布循环：`node scripts/build.mjs --bump patch` 一次性改 `@version`、`VERSION`、`package.json` 并重建 bundle。CI 会在「bundle 变了但版本号没变」时拦下这次推送——Tampermonkey 只认版本号，没升号的发布学生端永远收不到
 - 学生端会自动升级：脚本头带 `@updateURL`，Tampermonkey 每次检查到版本号变化就拉新版
-- 本地测试：`npm i` → `npm test`（jsdom 204 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式 / 一键全流程，需要本机 Chrome）
+- 本地测试：`npm i` → `npm test`（jsdom 218 项）、`npm run test:ui`（拖拽 / 隐藏 / 流式 / 一键全流程，需要本机 Chrome）
 - 文档配图：`npm run shots` 用本地模拟页生成，不含任何个人信息
 - 图标：设计稿在 `assets/icon/`——改 SVG 时保持坐标取偶数，再跑 `node assets/icon/render.cjs` 重新生成 PNG
 - 真实页验收与截图：把条目 ID 填进 `test/items.local.json`（模板 `test/items.example.json`，该文件不进仓库），再跑 `node test/real.js` / `node test/shots-real.js`
@@ -165,6 +167,7 @@ Tampermonkey 会拿 GitHub 上的版本号和本地比一比，有新版本就�
 
 完整历史见 [CHANGELOG.md](CHANGELOG.md)。
 
+- **1.14.2** — **修好代码题把整个程序冲掉的问题**：像 `for i in _____(7):` 这种补空位的练习，模型只回了空里的 `range`，编辑器就被覆盖成了这一个词。现在提示词明确要求输出整段程序，万一模型还是只回一截，插件会把它拼回原代码；另加设置「代码写入后等待（秒）」（3~10 秒），提交前先等页面把代码同步好，免得站点弹提示框
 - **1.14.1** — **修好「一键完成本页」只做完第一题的问题**：后面那些题其实**根本还没交**，之前却被当成「已提交过·跳过」——判断「交过没有」时搜得太宽（把别的题的状态词也捡来了），又把「按钮禁用」当成了「已提交」（其实没填答案时按钮也是禁用的）。现在一道一道往下做，直到本页全部完成
 - **1.14.0** — **面板理顺了**：「总结」和「对话」合成一个「对话」页，速学笔记就作为一条回复落在里面，底下带复制按钮，可以接着往下问；「扫描页面」「生成全部」「填入全部」改成按进度依次出现，不用一次看全；答案生成和页面总结也拆成了两个 token 上限
 - **1.13.0** — **已经提交过的页面改成跳过，不再报错**：题目一旦交上去，站点的「Submit Answer」就会永久禁用（状态变成 *Needs grading* / *Graded*）。现在脚本认得这个状态，会明确提示，并且不去碰那个按钮

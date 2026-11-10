@@ -1497,6 +1497,11 @@ details.adv .adv-body { padding-top: 6px; }
           <input type="range" min="15" max="120" step="5" data-k="typingWpm" value="${Number(cfg.typingWpm) || 75}" />
           <div class="hint" style="margin:2px 0 0">${L('15 = 很慢（边想边敲），120 = 很快；平均速度会贴近这个值。', '15 = very slow, 120 = very fast; the average pace tracks this value.')}</div>
         </div>
+        <div class="field">
+          <label>${L('代码写入后等待（秒）', 'Wait after writing code (seconds)')}</label>
+          <input type="number" step="1" min="3" max="10" data-k="codeWaitSec" value="${Number(cfg.codeWaitSec) || 5}" />
+          <div class="hint" style="margin:4px 0 0">${L('代码写进编辑器后，等这么久再点提交（3~10 秒）。用于防止程序还没同步就提交，导致站点弹提示框。', 'After the code is written into the editor, wait this long before submitting (3–10 s). It keeps the site from popping up a warning because the program had not synced yet.')}</div>
+        </div>
 
         <details class="adv">
           <summary>${L('高级设置', 'Advanced')}</summary>
@@ -1639,6 +1644,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('temperature', Number(read('temperature')) || 0);
       put('maxTokens', Number(read('maxTokens')) || 2048);
       put('summaryTokens', Number(read('summaryTokens')) || 4096);
+      put('codeWaitSec', Math.max(3, Math.min(10, Number(read('codeWaitSec')) || 5)));
       put('contextChars', Number(read('contextChars')) || 6000);
       put('language', read('language'));
       put('outputLangCustom', read('outputLangCustom'));

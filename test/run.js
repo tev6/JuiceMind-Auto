@@ -775,6 +775,45 @@ const doc = window.document;
   ok('批量答题的输出不超过「答案生成最大 tokens」', afBudget.budgets.length > 0 && afBudget.budgets.every((b) => b <= 1024), afBudget.budgets);
   ok('批量答题按题型给的预算不超过上限', afBudget.budgets.length > 0 && afBudget.budgets.every((b) => b > 0 && b <= 1024), afBudget.budgets);
 
+  console.log('\n【29】代码题：提示词要求整段程序 + 片段兜底 + 写入后等待');
+  // 29.1 提示词必须说清「代码题要输出整段程序」
+  const sysCode = J.Solvers.systemPrompt();
+  ok('提示词要求代码题输出完整程序', /整段|完整程序|完整可运行/.test(sysCode), sysCode.slice(0, 120));
+  ok('提示词明确说不能只回一个片段', /不是.*只填|只回|片段/.test(sysCode));
+  ok('答案规范里 code 也是完整代码全文', /code: .*完整/.test(sysCode));
+
+  // 29.2 模型只回了空位里的那一截时，要拼回原始程序
+  const qCode = { type: 'code', _origCode: 'for i in _____(7):\n  print("Go Team Go!")\n' };
+  const fragFixed = J.Solvers.fixCodeFragment({ answers: ['range'] }, qCode);
+  ok('只回空位时会拼回完整程序', fragFixed && fragFixed.code === 'for i in range(7):\n  print("Go Team Go!")\n', fragFixed && fragFixed.code);
+  const normFrag = J.Solvers.normalize({ type: 'code', answers: ['range'] }, qCode);
+  ok('normalize 也会把片段拼回完整程序', normFrag.answers[0] === 'for i in range(7):\n  print("Go Team Go!")\n', normFrag.answers[0]);
+  ok('整段程序不会被当成片段拼进去', !J.Solvers.fixCodeFragment({ answers: ['for i in range(7):\n  print("Go Team Go!")'] }, qCode));
+  ok('语句不会被当成片段拼进去', !J.Solvers.fixCodeFragment({ answers: ['print("Go Team Go!")'] }, qCode));
+  ok('原代码没有空位时不拼', !J.Solvers.fixCodeFragment({ answers: ['range'] }, { type: 'code', _origCode: 'print(1)\n' }));
+
+  // 29.3 代码写入后要等一等再提交
+  ok('默认等 5 秒', J.Store.get('codeWaitSec') === 5, J.Store.get('codeWaitSec'));
+  J.UI.renderSettings();
+  const cfgRoot2 = host.shadowRoot;
+  const waitInput = cfgRoot2.querySelector('[data-k="codeWaitSec"]');
+  ok('设置页有「代码写入后等待」', !!waitInput);
+  waitInput.value = '99';
+  J.UI.saveSettings();
+  ok('等待秒数上限 10', J.Store.get('codeWaitSec') === 10, J.Store.get('codeWaitSec'));
+  waitInput.value = '1';
+  J.UI.saveSettings();
+  ok('等待秒数下限 3', J.Store.get('codeWaitSec') === 3, J.Store.get('codeWaitSec'));
+  waitInput.value = '5';
+  J.UI.saveSettings();
+  const tWait0 = Date.now();
+  await J.Appliers.waitCodeSettled({ type: 'short' });
+  ok('非代码题不用等', Date.now() - tWait0 < 500, Date.now() - tWait0);
+  const tWait1 = Date.now();
+  await J.Appliers.waitCodeSettled({ type: 'code' });
+  const waited = Date.now() - tWait1;
+  ok('代码题会等到设置的秒数', waited >= 4900, waited);
+
   console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => {

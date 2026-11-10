@@ -5,7 +5,7 @@
 // @updateURL    https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/tev6/JuiceMind-Auto/main/juicemind-ai-assistant.user.js
 // @supportURL   https://github.com/tev6/JuiceMind-Auto/issues
-// @version      1.14.1
+// @version      1.14.2
 // @description  为 JuiceMind 学习平台提供 AI 辅助答题：自动识别教程/选择题/简答/编程/Parsons 等页面形式，调用外部大模型 API 生成答案并填入。玻璃拟态悬浮窗，跟随站点配色。
 // @author       tev6
 // @match        https://play.juicemind.com/*
@@ -55,7 +55,7 @@
    *   8. 启动               Bootstrap
    * ========================================================================= */
 
-  const VERSION = '1.14.1';
+  const VERSION = '1.14.2';
   const LOG_PREFIX = '[JM-AI]';
 
   /* ============================ 0. 工具函数 ============================ */
@@ -228,6 +228,7 @@
     temperature: 0.2,
     maxTokens: 2048, // 答案生成的上限
     summaryTokens: 4096, // 页面总结 / 对话的上限（总结一整页要写的比较多）
+    codeWaitSec: 5, // 代码写进编辑器后等几秒再提交（3~10 秒）
     extraHeaders: '',
     explain: false, // 是否让模型返回解析（更耗 token，默认关）
     jsonMode: true, // 请求 response_format=json_object，失败自动降级
@@ -1867,7 +1868,7 @@
 {"type":"mcq|multiselect|short|free|code|parsons|blank","answers":[...],"explanation":"可选"}
 - mcq: ["B"]；multiselect: ["A","C"]
 - short/free: 可直接填入的段落数组
-- code: 完整可运行代码（保留缩进）
+- code: 完整可运行代码全文（保留缩进，含题目给的原代码）
 - parsons: 行号数组（从 0 开始，按正确顺序）
 - blank: 按空位从左到右`;
 
@@ -2074,7 +2075,7 @@
         '你是 JuiceMind 课程助手，替上课的学生作答，答案要能直接填进页面。',
         '规则：',
         '1. 依据题干、选项与上下文作答；选择题只看选项内容，多选给全。',
-        '2. 代码题按题目要求的函数名与输入输出写完整代码，保留缩进，不要 Markdown 围栏。',
+        '2. 代码题输出整段完整程序：保留题目给的原代码，把空补上整体输出；哪怕题目只让你补一个空，也不要只回那一截。',
         '3. 简答 2~4 句，用题目语言；填空按空位顺序、保留原拼写。',
         '4. answers 用' + outLang + '；' + (explain ? 'explanation 用' + lang + '。' : '不要输出 explanation 字段。'),
         batch ? '5. 批量作答：返回 {"answers":[{"i":题号, ...}, ...]}，i 从 1 开始，覆盖每一题。' : '',
@@ -2320,12 +2321,61 @@
         .map((a) => (a.length < 400 && /\n/.test(a) ? a.replace(/\n+$/, '') : a));
 
       const type = parsed.type || q.type;
-      return {
+      const out = {
         type,
         answers,
         explanation: oneLine(parsed.explanation || parsed.reasoning || parsed.reason || ''),
         raw: parsed,
       };
+      // 代码题兜底：模型只回了要补的那一截，拼回原始程序
+      const fixed = this.fixCodeFragment(out, q);
+      if (fixed) {
+        out.answers = [fixed.code];
+        out.explanation = (out.explanation ? out.explanation + ' ' : '') + fixed.note;
+      }
+      return out;
+    },
+
+    /**
+     * 「填空式」代码练习的兜底。
+     *
+     * 题目让模型补一个空（`for i in _____(7):`），有些模型会只回那几个字（`range`）。
+     * 插件是**整段覆盖**编辑器，只回一个片段等于把原程序冲掉 —— 这里把它拼回原始代码。
+     *
+     * @returns {{code: string, note: string}|null} 拼不了就返回 null
+     */
+    fixCodeFragment(answer, q) {
+      if (!q || q.type !== 'code') return null;
+      // 原始代码只认第一次读到的：之后插件可能已经往编辑器里写过东西了
+      if (q._origCode == null) q._origCode = Appliers.readCode(q) || '';
+      const original = q._origCode;
+      const frag = (answer.answers || []).join('\n').trim();
+      const code = this.spliceBlank(original, frag);
+      if (!code) return null;
+      return {
+        code,
+        note: L(
+          '（模型只回了要补的那一截，已帮你拼回完整程序）',
+          '(the model returned only the blank — it was spliced back into the full program)'
+        ),
+      };
+    },
+
+    /**
+     * 把一个「空位的填法」拼回原始代码。
+     * 只认「一个名字 / 一次调用 / 一个字符串」这种短片段，
+     * 免得把整段程序误当成填法塞进空里。
+     */
+    spliceBlank(original, frag) {
+      if (!original || !frag) return '';
+      if (!/_{2,}/.test(original)) return ''; // 原代码里没有空位，用不上
+      const f = String(frag).trim();
+      if (!f || f.length > 40 || /\n/.test(f)) return '';
+      const ok = /^(?:[A-Za-z_][A-Za-z0-9_]*(?:\s*\([^()]*\))?|["'][^"'\n]*["'])$/;
+      if (!ok.test(f)) return '';
+      // print / return / for … 这些是语句，不是填法
+      if (/^(print|return|if|for|while|def|class|import|from|else|elif|try|except|with|assert|lambda|pass|break|continue|raise|yield)\b/i.test(f)) return '';
+      return original.replace(/_{2,}/, () => f);
     },
 
     /* --------------------------- 批量 --------------------------- */
@@ -2901,6 +2951,20 @@
       return { ok: false, btn };
     },
 
+    /**
+     * 代码写进编辑器之后，等页面把它同步好再提交。
+     *
+     * IDE 要把代码送过去、跑起来；提交太快站点会以为程序没就绪，
+     * 弹一个「先运行测试之类的」提示框，把后面的题全挡住。
+     * 等多久可以在设置里调（3~10 秒）。
+     */
+    async waitCodeSettled(q) {
+      if (!q || q.type !== 'code') return;
+      const sec = Math.max(3, Math.min(10, Number(Store.get('codeWaitSec')) || 5));
+      UI.status(L(`代码已写入，等 ${sec} 秒让页面同步…`, `Code written — waiting ${sec}s for the page to sync…`), 'busy');
+      await sleep(sec * 1000);
+    },
+
     /** 再操作一次：受控组件偶尔会漏掉第一次点击 */
     async retryApply(q) {
       if (!q.answer) return false;
@@ -2924,6 +2988,9 @@
       }
       const found = this.submitButton(q);
       if (!found) return { ok: false, msg: L('没找到提交按钮，请手动提交', 'No submit button found — submit it manually') };
+
+      // 代码题：等页面把代码同步好再提交，免得站点弹提示框
+      await this.waitCodeSettled(q);
 
       // 按钮解禁 = 站点收下了这道答案。不能只看一次，要给它一点反应时间。
       let ready = await this.waitEnabled(q, 1200);
@@ -4834,6 +4901,11 @@ details.adv .adv-body { padding-top: 6px; }
           <input type="range" min="15" max="120" step="5" data-k="typingWpm" value="${Number(cfg.typingWpm) || 75}" />
           <div class="hint" style="margin:2px 0 0">${L('15 = 很慢（边想边敲），120 = 很快；平均速度会贴近这个值。', '15 = very slow, 120 = very fast; the average pace tracks this value.')}</div>
         </div>
+        <div class="field">
+          <label>${L('代码写入后等待（秒）', 'Wait after writing code (seconds)')}</label>
+          <input type="number" step="1" min="3" max="10" data-k="codeWaitSec" value="${Number(cfg.codeWaitSec) || 5}" />
+          <div class="hint" style="margin:4px 0 0">${L('代码写进编辑器后，等这么久再点提交（3~10 秒）。用于防止程序还没同步就提交，导致站点弹提示框。', 'After the code is written into the editor, wait this long before submitting (3–10 s). It keeps the site from popping up a warning because the program had not synced yet.')}</div>
+        </div>
 
         <details class="adv">
           <summary>${L('高级设置', 'Advanced')}</summary>
@@ -4976,6 +5048,7 @@ details.adv .adv-body { padding-top: 6px; }
       put('temperature', Number(read('temperature')) || 0);
       put('maxTokens', Number(read('maxTokens')) || 2048);
       put('summaryTokens', Number(read('summaryTokens')) || 4096);
+      put('codeWaitSec', Math.max(3, Math.min(10, Number(read('codeWaitSec')) || 5)));
       put('contextChars', Number(read('contextChars')) || 6000);
       put('language', read('language'));
       put('outputLangCustom', read('outputLangCustom'));
